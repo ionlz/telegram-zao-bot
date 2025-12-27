@@ -7,7 +7,7 @@ from typing import Any
 
 
 DEFAULT_MESSAGES: dict[str, str] = {
-    "help": "📌 用法：/zao 签到，/wan 签退，/awake 查询清醒时长（可回复他人消息使用），/rank 今日排行榜 或 /rank all 总榜。",
+    "help": "📌 指令说明：\n/zao 签到\n/wan 签退\n/awake 查询清醒时长（可回复某人消息后查询 TA）\n/rank 今日排行榜（/rank all 总榜；加 global=全局，例如：/rank global 或 /rank all global）\n/ach 成就查询（可加 global；也可回复某人消息后 /ach 查询 TA）\n/achrank 成就排行榜（daily｜streak｜ontime｜longday；可加 global，例如：/achrank global daily）\n\n🕓 说明：本 bot 的“今日”按业务日计算：凌晨 04:00 ~ 次日 04:00。",
     "day_ended": "🛌 {name} 今天已经结束，请休息吧。",
     "checkin_ok": "🌅 {name} ✅ 签到成功：{time}",
     "checkin_order_today": "📍 你是今日第 {n} 个签到的",

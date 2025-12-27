@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 from zao_bot import db
-from zao_bot.time_utils import day_key
+from zao_bot.time_utils import business_day_key
 
 
 ACH_DAILY_EARLIEST = "daily_earliest"
@@ -35,7 +35,8 @@ def on_check_in(
     2) 连续最早：连续7天都是每日最早，触发一次（可在 7/14/21... 天继续触发）
     """
     unlocked: list[str] = []
-    day = day_key(check_in_ts)
+    # 业务日：凌晨 4 点前仍算前一天
+    day = business_day_key(check_in_ts, cutoff_hour=4)
 
     # 今日最早（只会有一个人写入成功）
     is_earliest = db.set_daily_earliest(
@@ -74,6 +75,7 @@ def on_check_out(
     chat_id: int,
     user_id: int,
     session_id: int,
+    check_in_ts,
     duration: timedelta,
     now_ts,
 ) -> AchievementResult:
@@ -83,7 +85,8 @@ def on_check_out(
     4) 辛苦的一天：awake 时间超过 12h
     """
     unlocked: list[str] = []
-    day = day_key(now_ts)
+    # 统一按“本次 session 的业务日”归档（凌晨 4 点前仍算前一天），避免跨天签退记到次日
+    day = business_day_key(check_in_ts, cutoff_hour=4)
 
     # 8h ± 1min
     if abs(duration - timedelta(hours=8)) <= timedelta(minutes=1):

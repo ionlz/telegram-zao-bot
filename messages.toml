@@ -1,8 +1,8 @@
 # 复制为 messages.toml（或用环境变量 ZAO_MESSAGES 指定路径）即可自定义 bot 回复文案
 # 占位符使用 Python 的 str.format 语法，例如：{name}、{time}、{awake}
 
-help = "📌 用法：/zao 签到，/wan 签退，/awake 查询清醒时长（可回复他人消息使用），/rank 今日排行榜 或 /rank all 总榜。"
-day_ended = "🛌 {name} 今天已经结束，请休息吧。"
+help = "📌 指令说明：\n/zao 签到\n/wan 签退\n/awake 查询清醒时长（可回复某人消息后查询 TA）\n/rank 今日排行榜（/rank all 总榜；加 global=全局，例如：/rank global 或 /rank all global）\n/ach 成就查询（可加 global；也可回复某人消息后 /ach 查询 TA）\n/achrank 成就排行榜（daily｜streak｜ontime｜longday；可加 global，例如：/achrank global daily）\n\n🕓 说明：本 bot 的“今日”按业务日计算：凌晨 04:00 ~ 次日 04:00。"
+day_ended = "🛌 {name} 今天已经结束，好好休息~"
 
 checkin_ok = "🌅 {name} ✅ 签到成功：{time}"
 checkin_order_today = "📍 你是今日第 {n} 个签到的"
@@ -28,8 +28,8 @@ ach_unlocked = "🎉 解锁成就：{achievements}"
 
 ach_name_daily_earliest = "🥇 今日最早"
 ach_name_streak_earliest_7 = "🔥 连续最早 7 天"
-ach_name_ontime_8h = "⏰ 准点下班（8小时±1分钟）"
-ach_name_longday_12h = "💪 辛苦的一天（>12小时）"
+ach_name_ontime_8h = "⏰ 准点下班"
+ach_name_longday_12h = "💪 辛苦的一天"
 
 ach_header = "🏅 {name} 的成就"
 ach_header_global = "🌐🏅 {name} 的成就（全局）"
