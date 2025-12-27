@@ -5,6 +5,7 @@ help = "📌 用法：/zao 签到，/wan 签退，/awake 查询清醒时长（�
 day_ended = "🛌 {name} 今天已经结束，请休息吧。"
 
 checkin_ok = "🌅 {name} ✅ 签到成功：{time}"
+checkin_order_today = "📍 你是今日第 {n} 个签到的"
 checkin_inconsistent = "⚠️ 你可能已经签到过了，但我没查到未签退记录；请稍后重试。"
 checkin_already = "⏱️ {name} 你已经签到过了（{check_in}），已清醒 {awake}。"
 
@@ -16,8 +17,41 @@ awake_none = "📭 {name} 当前没有未签退记录（可能已经签退 /wan�
 
 rank_title_today = "🏆 今日清醒排行榜"
 rank_title_all = "🏆 总清醒排行榜"
+rank_title_today_global = "🌐 今日清醒排行榜（全局）"
+rank_title_all_global = "🌐 总清醒排行榜（全局）"
 rank_no_data = "📊 {title}：暂无数据。先 /zao 签到吧～"
 rank_header = "📊 {title}（统计到 {time}）"
 rank_line = "{idx}. {name} - {awake} 🔥"
+
+# --- Achievements ---
+ach_unlocked = "🎉 解锁成就：{achievements}"
+
+ach_name_daily_earliest = "🥇 今日最早"
+ach_name_streak_earliest_7 = "🔥 连续最早 7 天"
+ach_name_ontime_8h = "⏰ 准点下班（8小时±1分钟）"
+ach_name_longday_12h = "💪 辛苦的一天（>12小时）"
+
+ach_header = "🏅 {name} 的成就"
+ach_header_global = "🌐🏅 {name} 的成就（全局）"
+ach_line = "- {ach} × {count}"
+ach_none = "暂无成就记录，先 /zao 开始吧～"
+ach_streak_earliest = "📈 当前“今日最早”连胜：{streak} 天｜累计最早：{total} 天"
+ach_streak_earliest_global = "🌐📈 最强“今日最早”连胜：{streak} 天（来自：{chat}）｜累计最早：{total} 天"
+
+ach_rank_help = "📊 用法：/achrank daily｜streak｜ontime｜longday"
+ach_rank_empty = "📭 暂无排行榜数据。"
+
+ach_rank_title_daily = "🥇 成就榜：今日最早（累计天数）"
+ach_rank_title_streak = "🔥 成就榜：连续今日最早（当前连胜）"
+ach_rank_title_ontime = "⏰ 成就榜：准点下班（累计次数）"
+ach_rank_title_longday = "💪 成就榜：辛苦的一天（累计次数）"
+ach_rank_title_daily_global = "🌐🥇 成就榜：今日最早（全局累计）"
+ach_rank_title_streak_global = "🌐🔥 成就榜：连续今日最早（全局最强连胜）"
+ach_rank_title_ontime_global = "🌐⏰ 成就榜：准点下班（全局累计）"
+ach_rank_title_longday_global = "🌐💪 成就榜：辛苦的一天（全局累计）"
+
+ach_rank_line_count = "{idx}. {name} - {count}"
+ach_rank_line_streak = "{idx}. {name} - {streak} 天"
+ach_rank_line_streak_global = "{idx}. {name} - {streak} 天（{chat}）"
 
 

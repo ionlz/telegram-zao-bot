@@ -32,3 +32,27 @@ def day_range(now: datetime) -> tuple[datetime, datetime]:
     return start, end
 
 
+def day_key(dt: datetime) -> str:
+    # 使用本地时区的日期作为“今天”键
+    return dt.date().isoformat()
+
+
+def business_day_range(now: datetime, *, cutoff_hour: int = 4) -> tuple[datetime, datetime]:
+    """
+    业务日范围：默认以凌晨 4 点作为一天的边界。
+    例如：2025-01-02 03:59 仍属于 2025-01-01 的业务日。
+    """
+    cutoff = now.replace(hour=cutoff_hour, minute=0, second=0, microsecond=0)
+    if now < cutoff:
+        cutoff = cutoff - timedelta(days=1)
+    return cutoff, cutoff + timedelta(days=1)
+
+
+def business_day_key(dt: datetime, *, cutoff_hour: int = 4) -> str:
+    """
+    业务日 key（YYYY-MM-DD）：默认以凌晨 4 点作为一天的边界。
+    """
+    start, _end = business_day_range(dt, cutoff_hour=cutoff_hour)
+    return start.date().isoformat()
+
+
