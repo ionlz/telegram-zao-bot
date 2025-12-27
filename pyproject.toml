@@ -1,0 +1,9 @@
+[project]
+name = "zao-bot"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+  "python-telegram-bot>=22",
+]
