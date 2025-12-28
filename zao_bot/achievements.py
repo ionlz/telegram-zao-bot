@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import date, timedelta
 
 from zao_bot import db
 from zao_bot.time_utils import business_day_key
@@ -87,9 +87,14 @@ def on_check_out(
     unlocked: list[str] = []
     # 统一按“本次 session 的业务日”归档（凌晨 4 点前仍算前一天），避免跨天签退记到次日
     day = business_day_key(check_in_ts, cutoff_hour=4)
+    # 仅工作日（周一~周五）触发
+    try:
+        is_weekday = date.fromisoformat(day).weekday() <= 4
+    except Exception:
+        is_weekday = True
 
     # 8h ± 1min
-    if abs(duration - timedelta(hours=8)) <= timedelta(minutes=1):
+    if is_weekday and abs(duration - timedelta(hours=8)) <= timedelta(minutes=1):
         if db.award_achievement(
             db_path,
             chat_id=chat_id,
@@ -102,7 +107,7 @@ def on_check_out(
             unlocked.append(ACH_ONTIME_8H)
 
     # > 12h
-    if duration > timedelta(hours=12):
+    if is_weekday and duration > timedelta(hours=12):
         if db.award_achievement(
             db_path,
             chat_id=chat_id,

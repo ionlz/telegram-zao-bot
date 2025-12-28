@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from datetime import timedelta
 
 from telegram import Update, User
@@ -33,6 +34,20 @@ class HandlerDeps:
     messages: MessageCatalog
 
 
+def event_time(update: Update, deps: HandlerDeps) -> datetime:
+    """
+    统一使用“用户消息发出时间”作为事件时间（而不是 bot 收到/处理时间）。
+    Telegram 的 message.date 通常是 UTC 时间；这里会转换到配置的 TZ。
+    """
+    msg = update.effective_message
+    if msg and getattr(msg, "date", None):
+        dt: datetime = msg.date
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(deps.settings.tzinfo)
+    return tz_now(deps.settings.tzinfo)
+
+
 def _upsert(update: Update, deps: HandlerDeps) -> None:
     if not update.effective_user or not update.effective_chat:
         return
@@ -62,7 +77,7 @@ async def cmd_zao(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.effective_chat or not update.effective_user:
         return
     _upsert(update, deps)
-    now = tz_now(deps.settings.tzinfo)
+    now = event_time(update, deps)
     today_key = business_day_key(now, cutoff_hour=4)
 
     if db.session_today_completed(deps.settings.db_path, chat_id=update.effective_chat.id, user_id=update.effective_user.id, day=today_key):
@@ -73,12 +88,9 @@ async def cmd_zao(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     ok = db.check_in(deps.settings.db_path, chat_id=update.effective_chat.id, user_id=update.effective_user.id, ts=now)
     if ok:
-        await update.effective_message.reply_text(
-            deps.messages.render("checkin_ok", name=display_name(update.effective_user), time=fmt_dt(now))
-        )
+        # 尽量合并为一条：签到成功 + 今日第N个签到
         open_sess = db.get_open_session(deps.settings.db_path, chat_id=update.effective_chat.id, user_id=update.effective_user.id)
         if open_sess:
-            # 今日第 N 个签到
             n = db.today_checkin_position(
                 deps.settings.db_path,
                 chat_id=update.effective_chat.id,
@@ -86,11 +98,16 @@ async def cmd_zao(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 check_in=open_sess.check_in,
                 day=today_key,
             )
-            await update.effective_message.reply_text(deps.messages.render("checkin_order_today", n=n))
+            await update.effective_message.reply_text(
+                deps.messages.render(
+                    "checkin_ok_with_order",
+                    name=display_name(update.effective_user),
+                    time=fmt_dt(now),
+                    n=n,
+                )
+            )
 
-        # 成就：今日最早 / 连续最早
-        open_sess = db.get_open_session(deps.settings.db_path, chat_id=update.effective_chat.id, user_id=update.effective_user.id)
-        if open_sess:
+            # 成就：今日最早 / 连续最早（可单独发送）
             res = achievements.on_check_in(
                 db_path=deps.settings.db_path,
                 chat_id=update.effective_chat.id,
@@ -104,6 +121,10 @@ async def cmd_zao(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 await update.effective_message.reply_text(
                     deps.messages.render("ach_unlocked", achievements="、".join(names))
                 )
+        else:
+            await update.effective_message.reply_text(
+                deps.messages.render("checkin_ok", name=display_name(update.effective_user), time=fmt_dt(now))
+            )
         return
 
     open_sess = db.get_open_session(deps.settings.db_path, chat_id=update.effective_chat.id, user_id=update.effective_user.id)
@@ -126,7 +147,7 @@ async def cmd_wan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.effective_chat or not update.effective_user:
         return
     _upsert(update, deps)
-    now = tz_now(deps.settings.tzinfo)
+    now = event_time(update, deps)
     today_key = business_day_key(now, cutoff_hour=4)
 
     ok, dur, check_in_ts, session_id = db.check_out(
@@ -180,7 +201,7 @@ async def cmd_awake(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     u = target_user(update)
     if not u:
         return
-    now = tz_now(deps.settings.tzinfo)
+    now = event_time(update, deps)
     open_sess = db.get_open_session(deps.settings.db_path, chat_id=update.effective_chat.id, user_id=u.id)
     if open_sess:
         await update.effective_message.reply_text(
@@ -214,7 +235,7 @@ async def cmd_rank(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         elif arg in {"today", "day", "daily"}:
             mode = "today"
 
-    now = tz_now(deps.settings.tzinfo)
+    now = event_time(update, deps)
     rows = (
         db.leaderboard_global(deps.settings.db_path, mode=mode, now=now)
         if is_global
