@@ -4,5 +4,13 @@
 tz = "Asia/Shanghai"
 db_path = "./data/zao_bot.sqlite3"
 log_level = "INFO"
+# 代理（可选）：
+# 1) 无认证代理
+# proxy_url = "http://127.0.0.1:7890"
+# 2) 需要认证的代理（两种写法二选一）
+# proxy_url = "http://user:pass@127.0.0.1:7890"
+# proxy_url = "http://127.0.0.1:7890"
+# proxy_username = "user"
+# proxy_password = "pass"
 
 

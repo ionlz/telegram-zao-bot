@@ -36,10 +36,13 @@
 可选：
 
 - **DB_PATH**：SQLite 文件路径（默认 `./data/zao_bot.sqlite3`）
+- **ZAO_DATABASE_URL / DATABASE_URL**：Postgres 连接串（例如 `postgresql://user:pass@host:5432/dbname`）。配置后会优先使用 Postgres（跨机器并发更稳）。
 - **TZ**：时区（默认 `Asia/Shanghai`）
 - **LOG_LEVEL**：日志级别（默认 `INFO`）
 - **ZAO_CONFIG**：配置文件路径（默认读取 `./config.toml`，若存在）
 - **ZAO_MESSAGES**：回复文案模板路径（默认读取 `./messages.toml`，若存在）
+- **ZAO_PROXY_URL**：HTTP 代理（例如 `http://127.0.0.1:7890`），用于 Telegram 请求转发
+- **ZAO_PROXY_USERNAME / ZAO_PROXY_PASSWORD**：代理认证（可选）。也可以直接把账号密码写进 URL：`http://user:pass@127.0.0.1:7890`
 
 SQLite（并发/恢复相关）：
 
@@ -55,6 +58,14 @@ export BOT_TOKEN="123456:xxxx"
 export TZ="Asia/Shanghai"
 export DB_PATH="$PWD/data/zao_bot.sqlite3"
 export LOG_LEVEL="INFO"
+python main.py
+```
+
+#### 使用 Postgres（推荐用于多实例/多机器）
+
+```bash
+export BOT_TOKEN="123456:xxxx"
+export ZAO_DATABASE_URL="postgresql://user:pass@127.0.0.1:5432/zao_bot"
 python main.py
 ```
 
@@ -150,6 +161,8 @@ python db_admin.py backup
 python db_admin.py integrity_check
 python db_admin.py checkpoint --mode FULL
 ```
+
+> 如果你使用的是 **Postgres**（配置了 `ZAO_DATABASE_URL`），上述 WAL/SQLite 运维只适用于 SQLite 模式。
 
 ---
 

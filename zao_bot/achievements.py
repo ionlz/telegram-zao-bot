@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-from zao_bot import db
+from zao_bot.storage.base import Storage
 from zao_bot.time_utils import business_day_key
 
 
@@ -22,7 +22,7 @@ class AchievementResult:
 
 def on_check_in(
     *,
-    db_path: str,
+    storage: Storage,
     chat_id: int,
     user_id: int,
     session_id: int,
@@ -39,8 +39,7 @@ def on_check_in(
     day = business_day_key(check_in_ts, cutoff_hour=4)
 
     # 今日最早（只会有一个人写入成功）
-    is_earliest = db.set_daily_earliest(
-        db_path,
+    is_earliest = storage.set_daily_earliest(
         chat_id=chat_id,
         day=day,
         user_id=user_id,
@@ -50,14 +49,13 @@ def on_check_in(
     )
     earliest_streak: int | None = None
     if is_earliest:
-        if db.award_achievement(db_path, chat_id=chat_id, user_id=user_id, key=ACH_DAILY_EARLIEST, created_at=now_ts, day=day):
+        if storage.award_achievement(chat_id=chat_id, user_id=user_id, key=ACH_DAILY_EARLIEST, created_at=now_ts, day=day):
             unlocked.append(ACH_DAILY_EARLIEST)
 
-        earliest_streak = db.update_streak(db_path, chat_id=chat_id, user_id=user_id, key="earliest", day=day, created_at=now_ts)
+        earliest_streak = storage.update_streak(chat_id=chat_id, user_id=user_id, key="earliest", day=day, created_at=now_ts)
         # 连续7天触发一次（7/14/21...）
         if earliest_streak > 0 and earliest_streak % 7 == 0:
-            if db.award_achievement(
-                db_path,
+            if storage.award_achievement(
                 chat_id=chat_id,
                 user_id=user_id,
                 key=ACH_STREAK_EARLIEST_7,
@@ -71,7 +69,7 @@ def on_check_in(
 
 def on_check_out(
     *,
-    db_path: str,
+    storage: Storage,
     chat_id: int,
     user_id: int,
     session_id: int,
@@ -95,8 +93,7 @@ def on_check_out(
 
     # 8h ± 1min
     if is_weekday and abs(duration - timedelta(hours=8)) <= timedelta(minutes=1):
-        if db.award_achievement(
-            db_path,
+        if storage.award_achievement(
             chat_id=chat_id,
             user_id=user_id,
             key=ACH_ONTIME_8H,
@@ -108,8 +105,7 @@ def on_check_out(
 
     # > 12h
     if is_weekday and duration > timedelta(hours=12):
-        if db.award_achievement(
-            db_path,
+        if storage.award_achievement(
             chat_id=chat_id,
             user_id=user_id,
             key=ACH_LONGDAY_12H,

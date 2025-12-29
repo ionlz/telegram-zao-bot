@@ -9,9 +9,9 @@ from telegram.ext import ContextTypes
 
 from config import Settings
 from zao_bot import achievements
-from zao_bot import db
 from zao_bot.messages import MessageCatalog
 from zao_bot.time_utils import business_day_key, fmt_dt, fmt_td, now as tz_now
+from zao_bot.storage.base import Storage
 
 
 def display_name(u: User) -> str:
@@ -32,6 +32,7 @@ def target_user(update: Update) -> User | None:
 class HandlerDeps:
     settings: Settings
     messages: MessageCatalog
+    storage: Storage
 
 
 def event_time(update: Update, deps: HandlerDeps) -> datetime:
@@ -53,8 +54,7 @@ def _upsert(update: Update, deps: HandlerDeps) -> None:
         return
     u = update.effective_user
     c = update.effective_chat
-    db.upsert_user_and_chat(
-        deps.settings.db_path,
+    deps.storage.upsert_user_and_chat(
         user_id=u.id,
         username=u.username,
         first_name=u.first_name,
@@ -80,19 +80,18 @@ async def cmd_zao(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     now = event_time(update, deps)
     today_key = business_day_key(now, cutoff_hour=4)
 
-    if db.session_today_completed(deps.settings.db_path, chat_id=update.effective_chat.id, user_id=update.effective_user.id, day=today_key):
+    if deps.storage.session_today_completed(chat_id=update.effective_chat.id, user_id=update.effective_user.id, day=today_key):
         await update.effective_message.reply_text(
             deps.messages.render("day_ended", name=display_name(update.effective_user))
         )
         return
 
-    ok = db.check_in(deps.settings.db_path, chat_id=update.effective_chat.id, user_id=update.effective_user.id, ts=now)
+    ok = deps.storage.check_in(chat_id=update.effective_chat.id, user_id=update.effective_user.id, ts=now)
     if ok:
-        # 尽量合并为一条：签到成功 + 今日第N个签到
-        open_sess = db.get_open_session(deps.settings.db_path, chat_id=update.effective_chat.id, user_id=update.effective_user.id)
+        # 签到成功 + 今日第N个签到
+        open_sess = deps.storage.get_open_session(chat_id=update.effective_chat.id, user_id=update.effective_user.id)
         if open_sess:
-            n = db.today_checkin_position(
-                deps.settings.db_path,
+            n = deps.storage.today_checkin_position(
                 chat_id=update.effective_chat.id,
                 session_id=open_sess.session_id,
                 check_in=open_sess.check_in,
@@ -109,7 +108,7 @@ async def cmd_zao(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
             # 成就：今日最早 / 连续最早（可单独发送）
             res = achievements.on_check_in(
-                db_path=deps.settings.db_path,
+                storage=deps.storage,
                 chat_id=update.effective_chat.id,
                 user_id=update.effective_user.id,
                 session_id=open_sess.session_id,
@@ -127,7 +126,7 @@ async def cmd_zao(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
         return
 
-    open_sess = db.get_open_session(deps.settings.db_path, chat_id=update.effective_chat.id, user_id=update.effective_user.id)
+    open_sess = deps.storage.get_open_session(chat_id=update.effective_chat.id, user_id=update.effective_user.id)
     if not open_sess:
         await update.effective_message.reply_text(deps.messages.render("checkin_inconsistent"))
         return
@@ -150,14 +149,13 @@ async def cmd_wan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     now = event_time(update, deps)
     today_key = business_day_key(now, cutoff_hour=4)
 
-    ok, dur, check_in_ts, session_id = db.check_out(
-        deps.settings.db_path,
+    ok, dur, check_in_ts, session_id = deps.storage.check_out(
         chat_id=update.effective_chat.id,
         user_id=update.effective_user.id,
         ts=now,
     )
     if not ok or dur is None or check_in_ts is None or session_id is None:
-        if db.session_today_exists(deps.settings.db_path, chat_id=update.effective_chat.id, user_id=update.effective_user.id, day=today_key):
+        if deps.storage.session_today_exists(chat_id=update.effective_chat.id, user_id=update.effective_user.id, day=today_key):
             await update.effective_message.reply_text(
                 deps.messages.render("day_ended", name=display_name(update.effective_user))
             )
@@ -179,7 +177,7 @@ async def cmd_wan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     # 成就：准点下班 / 辛苦的一天
     res = achievements.on_check_out(
-        db_path=deps.settings.db_path,
+        storage=deps.storage,
         chat_id=update.effective_chat.id,
         user_id=update.effective_user.id,
         session_id=session_id,
@@ -202,7 +200,7 @@ async def cmd_awake(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not u:
         return
     now = event_time(update, deps)
-    open_sess = db.get_open_session(deps.settings.db_path, chat_id=update.effective_chat.id, user_id=u.id)
+    open_sess = deps.storage.get_open_session(chat_id=update.effective_chat.id, user_id=u.id)
     if open_sess:
         await update.effective_message.reply_text(
             deps.messages.render(
@@ -237,9 +235,9 @@ async def cmd_rank(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     now = event_time(update, deps)
     rows = (
-        db.leaderboard_global(deps.settings.db_path, mode=mode, now=now)
+        deps.storage.leaderboard_global(mode=mode, now=now)
         if is_global
-        else db.leaderboard(deps.settings.db_path, chat_id=update.effective_chat.id, mode=mode, now=now)
+        else deps.storage.leaderboard(chat_id=update.effective_chat.id, mode=mode, now=now)
     )
     if is_global:
         title = deps.messages.render("rank_title_today_global") if mode == "today" else deps.messages.render("rank_title_all_global")
@@ -271,24 +269,23 @@ async def cmd_ach(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     is_global = ("global" in args) or ("g" in args)
 
     stats = (
-        db.get_achievement_stats_global(deps.settings.db_path, user_id=u.id)
+        deps.storage.get_achievement_stats_global(user_id=u.id)
         if is_global
-        else db.get_achievement_stats(deps.settings.db_path, chat_id=update.effective_chat.id, user_id=u.id)
+        else deps.storage.get_achievement_stats(chat_id=update.effective_chat.id, user_id=u.id)
     )
     total_earliest = (
-        db.get_achievement_count_global(deps.settings.db_path, user_id=u.id, key=achievements.ACH_DAILY_EARLIEST)
+        deps.storage.get_achievement_count_global(user_id=u.id, key=achievements.ACH_DAILY_EARLIEST)
         if is_global
-        else db.get_achievement_count(
-            deps.settings.db_path,
+        else deps.storage.get_achievement_count(
             chat_id=update.effective_chat.id,
             user_id=u.id,
             key=achievements.ACH_DAILY_EARLIEST,
         )
     )
     if is_global:
-        streak, _cid, ctitle = db.get_streak_best_global(deps.settings.db_path, user_id=u.id, key="earliest")
+        streak, _cid, ctitle = deps.storage.get_streak_best_global(user_id=u.id, key="earliest")
     else:
-        streak = db.get_streak(deps.settings.db_path, chat_id=update.effective_chat.id, user_id=u.id, key="earliest")
+        streak = deps.storage.get_streak(chat_id=update.effective_chat.id, user_id=u.id, key="earliest")
         ctitle = None
 
     lines: list[str] = [
@@ -323,9 +320,9 @@ async def cmd_achrank(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if kind in {"daily", "earliest"}:
         title = deps.messages.render("ach_rank_title_daily_global") if is_global else deps.messages.render("ach_rank_title_daily")
         rows = (
-            db.achievement_rank_by_count_global(deps.settings.db_path, key=achievements.ACH_DAILY_EARLIEST)
+            deps.storage.achievement_rank_by_count_global(key=achievements.ACH_DAILY_EARLIEST)
             if is_global
-            else db.achievement_rank_by_count(deps.settings.db_path, chat_id=update.effective_chat.id, key=achievements.ACH_DAILY_EARLIEST)
+            else deps.storage.achievement_rank_by_count(chat_id=update.effective_chat.id, key=achievements.ACH_DAILY_EARLIEST)
         )
         lines = [title]
         for i, (_uid, name, count) in enumerate(rows, start=1):
@@ -336,10 +333,10 @@ async def cmd_achrank(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if kind in {"streak", "consecutive"}:
         title = deps.messages.render("ach_rank_title_streak_global") if is_global else deps.messages.render("ach_rank_title_streak")
         if is_global:
-            rows = db.streak_rank_global(deps.settings.db_path, key="earliest")
+            rows = deps.storage.streak_rank_global(key="earliest")
         else:
             # 统一成 (uid,name,streak,chat_id,chat_title) 的结构
-            local_rows = db.streak_rank(deps.settings.db_path, chat_id=update.effective_chat.id, key="earliest")
+            local_rows = deps.storage.streak_rank(chat_id=update.effective_chat.id, key="earliest")
             rows = [(uid, name, streak, None, None) for (uid, name, streak) in local_rows]
         lines = [title]
         for i, (_uid, name, streak, _cid, ctitle) in enumerate(rows, start=1):
@@ -353,9 +350,9 @@ async def cmd_achrank(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if kind in {"ontime", "8h", "8"}:
         title = deps.messages.render("ach_rank_title_ontime_global") if is_global else deps.messages.render("ach_rank_title_ontime")
         rows = (
-            db.achievement_rank_by_count_global(deps.settings.db_path, key=achievements.ACH_ONTIME_8H)
+            deps.storage.achievement_rank_by_count_global(key=achievements.ACH_ONTIME_8H)
             if is_global
-            else db.achievement_rank_by_count(deps.settings.db_path, chat_id=update.effective_chat.id, key=achievements.ACH_ONTIME_8H)
+            else deps.storage.achievement_rank_by_count(chat_id=update.effective_chat.id, key=achievements.ACH_ONTIME_8H)
         )
         lines = [title]
         for i, (_uid, name, count) in enumerate(rows, start=1):
@@ -366,9 +363,9 @@ async def cmd_achrank(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if kind in {"longday", "12h", "12"}:
         title = deps.messages.render("ach_rank_title_longday_global") if is_global else deps.messages.render("ach_rank_title_longday")
         rows = (
-            db.achievement_rank_by_count_global(deps.settings.db_path, key=achievements.ACH_LONGDAY_12H)
+            deps.storage.achievement_rank_by_count_global(key=achievements.ACH_LONGDAY_12H)
             if is_global
-            else db.achievement_rank_by_count(deps.settings.db_path, chat_id=update.effective_chat.id, key=achievements.ACH_LONGDAY_12H)
+            else deps.storage.achievement_rank_by_count(chat_id=update.effective_chat.id, key=achievements.ACH_LONGDAY_12H)
         )
         lines = [title]
         for i, (_uid, name, count) in enumerate(rows, start=1):
