@@ -803,3 +803,35 @@ def leaderboard_global(db_path: str, *, mode: str, now: datetime) -> list[tuple[
     return out
 
 
+def open_user_ids(db_path: str, *, chat_id: int) -> set[int]:
+    """
+    返回某个 chat 中当前“未签退”的用户集合（sessions.check_out IS NULL）。
+    用于榜单/状态展示，避免在 handlers 层逐个 user_id 查询。
+    """
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT user_id
+            FROM sessions
+            WHERE chat_id=? AND check_out IS NULL;
+            """,
+            (chat_id,),
+        ).fetchall()
+    return {int(r["user_id"]) for r in rows}
+
+
+def open_user_ids_global(db_path: str) -> set[int]:
+    """
+    返回全局（跨所有 chat）当前“未签退”的用户集合。
+    """
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT user_id
+            FROM sessions
+            WHERE check_out IS NULL;
+            """
+        ).fetchall()
+    return {int(r["user_id"]) for r in rows}
+
+

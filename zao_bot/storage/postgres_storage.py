@@ -325,6 +325,31 @@ class PostgresStorage(Storage):
             out.append((int(user_id), _display_name_from_row(name, int(user_id)), int(seconds or 0)))
         return out
 
+    def open_user_ids(self, *, chat_id: int) -> set[int]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT DISTINCT user_id
+                FROM sessions
+                WHERE chat_id=%s AND check_out IS NULL;
+                """,
+                (chat_id,),
+            )
+            rows = cur.fetchall()
+        return {int(r[0]) for r in rows}
+
+    def open_user_ids_global(self) -> set[int]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT DISTINCT user_id
+                FROM sessions
+                WHERE check_out IS NULL;
+                """
+            )
+            rows = cur.fetchall()
+        return {int(r[0]) for r in rows}
+
     def set_daily_earliest(
         self,
         *,

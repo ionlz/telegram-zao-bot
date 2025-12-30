@@ -12,6 +12,15 @@ ACH_STREAK_EARLIEST_7 = "streak_earliest_7"
 ACH_ONTIME_8H = "ontime_8h"
 ACH_LONGDAY_12H = "longday_12h"
 
+# 成就分类：
+# - 可重复获取：累计次数（获得成就）
+# - 单次成就：只在一个群里首次达成时触发（解锁成就）
+SINGLE_ACHIEVEMENTS: set[str] = {ACH_ONTIME_8H}
+
+
+def is_single_achievement(key: str) -> bool:
+    return key in SINGLE_ACHIEVEMENTS
+
 
 @dataclass(frozen=True)
 class AchievementResult:
@@ -93,15 +102,17 @@ def on_check_out(
 
     # 8h ± 1min
     if is_weekday and abs(duration - timedelta(hours=8)) <= timedelta(minutes=1):
-        if storage.award_achievement(
-            chat_id=chat_id,
-            user_id=user_id,
-            key=ACH_ONTIME_8H,
-            created_at=now_ts,
-            day=day,
-            session_id=session_id,
-        ):
-            unlocked.append(ACH_ONTIME_8H)
+        # 单次成就：每个群里只在首次达成时触发一次（之后不再累计）
+        if storage.get_achievement_count(chat_id=chat_id, user_id=user_id, key=ACH_ONTIME_8H) <= 0:
+            if storage.award_achievement(
+                chat_id=chat_id,
+                user_id=user_id,
+                key=ACH_ONTIME_8H,
+                created_at=now_ts,
+                day=day,
+                session_id=session_id,
+            ):
+                unlocked.append(ACH_ONTIME_8H)
 
     # > 12h
     if is_weekday and duration > timedelta(hours=12):

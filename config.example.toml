@@ -4,6 +4,8 @@
 tz = "Asia/Shanghai"
 db_path = "./data/zao_bot.sqlite3"
 log_level = "INFO"
+# 启动时自动调用 Bot API setMyCommands，同步命令到 BotFather（无需手动 /setcommands）
+auto_register_commands = true
 # 代理（可选）：
 # 1) 无认证代理
 # proxy_url = "http://127.0.0.1:7890"

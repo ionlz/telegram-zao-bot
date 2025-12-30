@@ -116,10 +116,18 @@ async def cmd_zao(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 now_ts=now,
             )
             if res.unlocked:
-                names = [deps.messages.render(f"ach_name_{k}") for k in res.unlocked]
-                await update.effective_message.reply_text(
-                    deps.messages.render("ach_unlocked", achievements="、".join(names))
-                )
+                awarded = [k for k in res.unlocked if not achievements.is_single_achievement(k)]
+                unlocked = [k for k in res.unlocked if achievements.is_single_achievement(k)]
+                lines: list[str] = []
+                if awarded:
+                    names = [deps.messages.render(f"ach_name_{k}") for k in awarded]
+                    # 兼容旧 messages.toml：没定义 ach_awarded 时退回 ach_unlocked
+                    tpl = "ach_awarded" if "ach_awarded" in deps.messages.messages else "ach_unlocked"
+                    lines.append(deps.messages.render(tpl, achievements="、".join(names)))
+                if unlocked:
+                    names = [deps.messages.render(f"ach_name_{k}") for k in unlocked]
+                    lines.append(deps.messages.render("ach_unlocked", achievements="、".join(names)))
+                await update.effective_message.reply_text("\n".join(lines))
         else:
             await update.effective_message.reply_text(
                 deps.messages.render("checkin_ok", name=display_name(update.effective_user), time=fmt_dt(now))
@@ -186,8 +194,17 @@ async def cmd_wan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         now_ts=now,
     )
     if res.unlocked:
-        names = [deps.messages.render(f"ach_name_{k}") for k in res.unlocked]
-        await update.effective_message.reply_text(deps.messages.render("ach_unlocked", achievements="、".join(names)))
+        awarded = [k for k in res.unlocked if not achievements.is_single_achievement(k)]
+        unlocked = [k for k in res.unlocked if achievements.is_single_achievement(k)]
+        lines: list[str] = []
+        if awarded:
+            names = [deps.messages.render(f"ach_name_{k}") for k in awarded]
+            tpl = "ach_awarded" if "ach_awarded" in deps.messages.messages else "ach_unlocked"
+            lines.append(deps.messages.render(tpl, achievements="、".join(names)))
+        if unlocked:
+            names = [deps.messages.render(f"ach_name_{k}") for k in unlocked]
+            lines.append(deps.messages.render("ach_unlocked", achievements="、".join(names)))
+        await update.effective_message.reply_text("\n".join(lines))
 
 
 async def cmd_awake(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -239,6 +256,7 @@ async def cmd_rank(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if is_global
         else deps.storage.leaderboard(chat_id=update.effective_chat.id, mode=mode, now=now)
     )
+    open_ids = deps.storage.open_user_ids_global() if is_global else deps.storage.open_user_ids(chat_id=update.effective_chat.id)
     if is_global:
         title = deps.messages.render("rank_title_today_global") if mode == "today" else deps.messages.render("rank_title_all_global")
     else:
@@ -248,9 +266,10 @@ async def cmd_rank(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     lines: list[str] = [deps.messages.render("rank_header", title=title, time=fmt_dt(now))]
-    for i, (_uid, name, sec) in enumerate(rows[:20], start=1):
+    for i, (uid, name, sec) in enumerate(rows[:20], start=1):
+        emoji = "🔥" if uid in open_ids else "💤"
         lines.append(
-            deps.messages.render("rank_line", idx=i, name=name, awake=fmt_td(timedelta(seconds=sec)))
+            deps.messages.render("rank_line", idx=i, name=name, awake=fmt_td(timedelta(seconds=sec)), emoji=emoji)
         )
     await update.effective_message.reply_text("\n".join(lines))
 

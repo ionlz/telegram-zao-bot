@@ -674,6 +674,19 @@ class SQLAlchemyStorage(Storage):
             out.append((int(r[0]), _display_name(r[1], int(r[0])), int(r[2] or 0)))
         return out
 
+    def open_user_ids(self, *, chat_id: int) -> set[int]:
+        with self.engine.connect() as conn:
+            rows = conn.execute(
+                text("SELECT DISTINCT user_id FROM sessions WHERE chat_id=:cid AND check_out IS NULL;"),
+                {"cid": chat_id},
+            ).fetchall()
+        return {int(r[0]) for r in rows}
+
+    def open_user_ids_global(self) -> set[int]:
+        with self.engine.connect() as conn:
+            rows = conn.execute(text("SELECT DISTINCT user_id FROM sessions WHERE check_out IS NULL;")).fetchall()
+        return {int(r[0]) for r in rows}
+
     # --- achievements ---
     def set_daily_earliest(
         self,

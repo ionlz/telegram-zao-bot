@@ -22,10 +22,11 @@ rank_title_today_global = "🌐 今日清醒排行榜（全局）"
 rank_title_all_global = "🌐 总清醒排行榜（全局）"
 rank_no_data = "📊 {title}：暂无数据。先 /zao 签到吧～"
 rank_header = "📊 {title}（统计到 {time}）"
-rank_line = "{idx}. {name} - {awake} 🔥"
+rank_line = "{idx}. {name} - {awake} {emoji}"
 
 # --- Achievements ---
 ach_unlocked = "🎉 解锁成就：{achievements}"
+ach_awarded = "🎉 获得成就：{achievements}"
 
 ach_name_daily_earliest = "🥇 今日最早"
 ach_name_streak_earliest_7 = "🔥 连续最早 7 天"

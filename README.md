@@ -43,6 +43,7 @@
 - **ZAO_MESSAGES**：回复文案模板路径（默认读取 `./messages.toml`，若存在）
 - **ZAO_PROXY_URL**：HTTP 代理（例如 `http://127.0.0.1:7890`），用于 Telegram 请求转发
 - **ZAO_PROXY_USERNAME / ZAO_PROXY_PASSWORD**：代理认证（可选）。也可以直接把账号密码写进 URL：`http://user:pass@127.0.0.1:7890`
+- **ZAO_AUTO_REGISTER_COMMANDS**：启动时自动同步命令到 BotFather（`setMyCommands`），默认开启；设为 `0/false/no/off` 可关闭
 
 SQLite（并发/恢复相关）：
 
@@ -65,7 +66,7 @@ python main.py
 
 ```bash
 export BOT_TOKEN="123456:xxxx"
-export ZAO_DATABASE_URL="postgresql://user:pass@127.0.0.1:5432/zao_bot"
+export ZAO_DATABASE_URL="postgresql://user:pass@127.0.0.1:5432/zao_bot"  # 还未测试
 python main.py
 ```
 

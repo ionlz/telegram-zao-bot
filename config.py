@@ -18,6 +18,7 @@ class Settings:
     proxy_url: str | None
     proxy_username: str | None
     proxy_password: str | None
+    auto_register_commands: bool
     config_path: str | None
 
     @property
@@ -66,6 +67,7 @@ def load_settings() -> Settings:
     - proxy_url
     - proxy_username
     - proxy_password
+    - auto_register_commands
     """
     default_config_path = str(Path.cwd() / "config.toml")
     cfg_path = os.getenv("ZAO_CONFIG", default_config_path)
@@ -85,6 +87,10 @@ def load_settings() -> Settings:
     proxy_password = str(proxy_password) if proxy_password else None
     bot_token = cfg.get("bot_token")
     bot_token = str(bot_token) if bot_token else None
+    auto_register_commands = cfg.get("auto_register_commands")
+    if auto_register_commands is None:
+        auto_register_commands = True
+    auto_register_commands = bool(auto_register_commands)
 
     # 环境变量覆盖
     tz_name = os.getenv("TZ", tz_name)
@@ -98,6 +104,11 @@ def load_settings() -> Settings:
     proxy_password = proxy_password_env if proxy_password_env != "" else proxy_password
     bot_token = os.getenv("BOT_TOKEN", bot_token or "")
     bot_token = bot_token.strip() or None
+
+    # 环境变量覆盖（bool）：ZAO_AUTO_REGISTER_COMMANDS=0/false/no/off 可关闭
+    arc = os.getenv("ZAO_AUTO_REGISTER_COMMANDS", "").strip().lower()
+    if arc:
+        auto_register_commands = arc not in {"0", "false", "no", "off"}
 
     # 如果 proxy_url 未包含认证信息且提供了 username/password，则拼接到 URL 里
     # 允许用户直接写 http://user:pass@host:port
@@ -124,6 +135,7 @@ def load_settings() -> Settings:
         proxy_url=effective_proxy_url,
         proxy_username=proxy_username,
         proxy_password=proxy_password,
+        auto_register_commands=auto_register_commands,
         config_path=effective_cfg_path,
     )
 

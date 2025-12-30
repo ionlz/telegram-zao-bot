@@ -64,6 +64,12 @@ class SQLiteStorage(Storage):
     def leaderboard_global(self, *, mode: str, now: datetime) -> list[tuple[int, str, int]]:
         return sqlite_db.leaderboard_global(self._db_path, mode=mode, now=now)
 
+    def open_user_ids(self, *, chat_id: int) -> set[int]:
+        return sqlite_db.open_user_ids(self._db_path, chat_id=chat_id)
+
+    def open_user_ids_global(self) -> set[int]:
+        return sqlite_db.open_user_ids_global(self._db_path)
+
     def set_daily_earliest(
         self,
         *,

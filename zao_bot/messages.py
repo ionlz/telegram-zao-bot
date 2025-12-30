@@ -24,9 +24,10 @@ DEFAULT_MESSAGES: dict[str, str] = {
     "rank_title_all": "🏆 总清醒排行榜",
     "rank_title_today_global": "🌐 今日清醒排行榜（全局）",
     "rank_title_all_global": "🌐 总清醒排行榜（全局）",
-    "rank_line": "{idx}. {name} - {awake} 🔥",
+    "rank_line": "{idx}. {name} - {awake} {emoji}",
     # --- Achievements ---
     "ach_unlocked": "🎉 解锁成就：{achievements}",
+    "ach_awarded": "🎉 获得成就：{achievements}",
     "ach_name_daily_earliest": "🥇 今日最早",
     "ach_name_streak_earliest_7": "🔥 连续最早 7 天",
     "ach_name_ontime_8h": "⏰ 准点下班",
