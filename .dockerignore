@@ -1,0 +1,28 @@
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+.git/
+.idea/
+.vscode/
+
+# 运行时数据不应打进镜像
+data/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+
+# 本地配置可能包含 token（建议用环境变量或单独挂载）
+config.toml
+
+# 构建/缓存
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+dist/
+build/
+*.egg-info/
+
+

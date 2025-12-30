@@ -1,0 +1,34 @@
+services:
+  zao-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: zao-bot
+    restart: unless-stopped
+    environment:
+      # 必填：从 @BotFather 获取
+      BOT_TOKEN: ${BOT_TOKEN}
+
+      # 可选：时区/日志
+      TZ: ${TZ:-Asia/Shanghai}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+      # 默认使用 SQLite（持久化到 /data）
+      DB_PATH: ${DB_PATH:-/data/zao_bot.sqlite3}
+
+      # 可选：代理
+      ZAO_PROXY_URL: ${ZAO_PROXY_URL:-}
+      ZAO_PROXY_USERNAME: ${ZAO_PROXY_USERNAME:-}
+      ZAO_PROXY_PASSWORD: ${ZAO_PROXY_PASSWORD:-}
+
+      # 可选：关闭自动 setMyCommands
+      ZAO_AUTO_REGISTER_COMMANDS: ${ZAO_AUTO_REGISTER_COMMANDS:-}
+
+      # 可选：若你想用文件配置，可把 config.toml 挂载到容器里并指定路径
+      # ZAO_CONFIG: /app/config.toml
+    volumes:
+      # SQLite 数据持久化
+      - ./data:/data
+      # 如需自定义文案，可改为挂载你自己的 messages.toml 并设置 ZAO_MESSAGES
+      # - ./messages.toml:/app/messages.toml:ro
+
