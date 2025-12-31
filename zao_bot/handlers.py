@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from datetime import timedelta
 
 from telegram import Update, User
@@ -70,6 +70,65 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     deps: HandlerDeps = context.bot_data["deps"]
     _upsert(update, deps)
     await update.effective_message.reply_text(deps.messages.render("help"))
+
+
+async def cmd_year(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /year：返回当前年度的日期进度条（今年总天数 vs 今天是第几天）。
+    """
+    deps: HandlerDeps = context.bot_data["deps"]
+    _upsert(update, deps)
+    if not update.effective_message:
+        return
+
+    now = event_time(update, deps)
+    today = now.date()
+    y = today.year
+
+    start = date(y, 1, 1)
+    end = date(y + 1, 1, 1)
+    total_days = (end - start).days
+    day_no = (today - start).days + 1
+    if total_days <= 0:
+        total_days = 365
+    if day_no < 1:
+        day_no = 1
+    if day_no > total_days:
+        day_no = total_days
+
+    ratio = day_no / total_days
+    # 允许通过参数调更细：/year 48  (默认 20：更适配手机屏幕；范围限制避免太容易换行)
+    bar_len = 20
+    args = [a.strip() for a in (context.args or []) if a.strip()]
+    if args:
+        try:
+            n = int(args[0])
+            if 8 <= n <= 60:
+                bar_len = n
+        except ValueError:
+            pass
+
+    # 更细粒度的字符进度：每格 1/8（▏▎▍▌▋▊▉ + 满格用更柔和的 ▓）
+    partial = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"]
+    full_char = "▓"
+    total_units = bar_len * 8
+    filled_units = int(ratio * total_units)
+    if filled_units < 0:
+        filled_units = 0
+    if filled_units > total_units:
+        filled_units = total_units
+    full_blocks, rem = divmod(filled_units, 8)
+    bar = full_char * full_blocks
+    if rem and len(bar) < bar_len:
+        bar += partial[rem]
+    bar = bar.ljust(bar_len, "░")
+
+    text = (
+        f"{y}\n"
+        f"{bar} {ratio * 100:.2f}%\n"
+        f"{day_no}/{total_days} {today.isoformat()}"
+    )
+    await update.effective_message.reply_text(text)
 
 
 async def cmd_zao(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -17,6 +17,7 @@ def default_bot_commands() -> list[BotCommand]:
         BotCommand("zao", "开始新的一天~"),
         BotCommand("wan", "准备休息吧~"),
         BotCommand("awake", "我还醒着吗?（可回复某人）"),
+        BotCommand("year", "今年进度条（按当前日期）"),
         BotCommand("rank", "让我看看!（可加 all/global）"),
         BotCommand("ach", "应该得记下些什么（可加 global/可回复某人）"),
         BotCommand("achrank", "你们都咋样了（daily/streak/ontime/longday，可加 global）"),

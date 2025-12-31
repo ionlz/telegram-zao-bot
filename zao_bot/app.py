@@ -8,7 +8,7 @@ from telegram.ext import Application, CommandHandler
 from telegram.request import HTTPXRequest
 
 from config import load_settings
-from zao_bot.handlers import HandlerDeps, cmd_ach, cmd_achrank, cmd_awake, cmd_rank, cmd_start, cmd_wan, cmd_zao
+from zao_bot.handlers import HandlerDeps, cmd_ach, cmd_achrank, cmd_awake, cmd_rank, cmd_start, cmd_wan, cmd_year, cmd_zao
 from zao_bot.messages import MessageCatalog
 from zao_bot.storage.factory import get_storage
 from zao_bot.telegram_commands import default_bot_commands
@@ -48,6 +48,7 @@ def build_app(
     app.add_handler(CommandHandler("zao", cmd_zao))
     app.add_handler(CommandHandler("wan", cmd_wan))
     app.add_handler(CommandHandler("awake", cmd_awake))
+    app.add_handler(CommandHandler("year", cmd_year))
     app.add_handler(CommandHandler("rank", cmd_rank))
     app.add_handler(CommandHandler("ach", cmd_ach))
     app.add_handler(CommandHandler("achievements", cmd_ach))
