@@ -40,7 +40,9 @@ def build_app(
     builder = Application.builder().token(token).post_init(_post_init)
     if proxy_url:
         # 同时用于 getUpdates 与其它 Bot API 请求（发消息/编辑消息等）
-        builder = builder.request(HTTPXRequest(proxy_url=proxy_url)).get_updates_request(HTTPXRequest(proxy_url=proxy_url))
+        # HTTPXRequest 使用 proxy 参数配置代理
+        request = HTTPXRequest(proxy=proxy_url)
+        builder = builder.request(request).get_updates_request(request)
 
     app = builder.build()
     app.add_handler(CommandHandler("start", cmd_start))

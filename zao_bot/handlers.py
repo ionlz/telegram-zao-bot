@@ -108,9 +108,9 @@ async def cmd_year(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         except ValueError:
             pass
 
-    # 更细粒度的字符进度：每格 1/8（▏▎▍▌▋▊▉ + 满格用更柔和的 ▓）
+    # 更细粒度的字符进度：每格 1/8（▏▎▍▌▋▊▉ + 满格用█）
     partial = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"]
-    full_char = "▓"
+    full_char = "█"
     total_units = bar_len * 8
     filled_units = int(ratio * total_units)
     if filled_units < 0:
@@ -121,7 +121,8 @@ async def cmd_year(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     bar = full_char * full_blocks
     if rem and len(bar) < bar_len:
         bar += partial[rem]
-    bar = bar.ljust(bar_len, "░")
+    bar = bar.ljust(bar_len, " ")
+    bar = f"├{bar}┤"
 
     text = (
         f"{y}\n"
