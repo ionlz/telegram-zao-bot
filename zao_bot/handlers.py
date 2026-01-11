@@ -513,33 +513,33 @@ def generate_heatmap(storage: Storage, user_id: int, year: int, month: int, tz: 
     # 生成日历矩阵
     cal = calendar.monthcalendar(year, month)
 
-    # 构建热力图（使用纯字符，避免 emoji 宽度问题）
-    lines = [f"【{year}年{month}月 签到热力图】\n"]
-    lines.append("一 二 三 四 五 六 日")
+    # 构建热力图（纯英文+字符，确保对齐）
+    lines = [f"Check-in Heatmap: {year}-{month:02d}\n"]
+    lines.append("Mon Tue Wed Thu Fri Sat Sun")
 
     for week_idx, week in enumerate(cal, start=1):
         line = ""
         for day in week:
             if day == 0:  # 空白日期
-                line += "   "
+                line += "    "  # 4个空格对齐
             else:
                 day_str = f"{year}-{month:02d}-{day:02d}"
                 if day_str in checkin_days:
-                    line += "■ "  # 实心方块表示已签到
+                    line += " ■  "  # 实心方块表示已签到
                 else:
-                    line += "□ "  # 空心方块表示未签到
+                    line += " □  "  # 空心方块表示未签到
         lines.append(line.rstrip())
 
     # 统计信息
     lines.append("")
-    lines.append("■ 已签到  □ 未签到")
+    lines.append("■ Checked  □ Missed")
 
     # 计算连续签到天数
     streak = calculate_current_streak(storage, user_id, tz)
     total_days = len(checkin_days)
 
-    lines.append(f"连续签到: {streak}天")
-    lines.append(f"本月签到: {total_days}/{month_days}天")
+    lines.append(f"Streak: {streak} days")
+    lines.append(f"Total: {total_days}/{month_days} days")
 
     return "\n".join(lines)
 
