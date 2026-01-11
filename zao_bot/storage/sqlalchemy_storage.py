@@ -442,6 +442,7 @@ class SQLAlchemyStorage(Storage):
                           challenger_choice TEXT,
                           opponent_choice TEXT,
                           status TEXT NOT NULL,
+                          winner_id BIGINT REFERENCES users(user_id),
                           message_id BIGINT,
                           created_at TIMESTAMPTZ NOT NULL
                         );
@@ -449,6 +450,7 @@ class SQLAlchemyStorage(Storage):
                     )
                 )
                 conn.execute(text("CREATE INDEX IF NOT EXISTS idx_rsp_pending ON rsp_games(chat_id, status);"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_rsp_stats ON rsp_games(chat_id, challenger_id, opponent_id, status);"))
             else:
                 conn.execute(
                     text(
@@ -461,16 +463,24 @@ class SQLAlchemyStorage(Storage):
                           challenger_choice TEXT,
                           opponent_choice TEXT,
                           status TEXT NOT NULL,
+                          winner_id INTEGER,
                           message_id INTEGER,
                           created_at TEXT NOT NULL,
                           FOREIGN KEY(chat_id) REFERENCES chats(chat_id),
                           FOREIGN KEY(challenger_id) REFERENCES users(user_id),
-                          FOREIGN KEY(opponent_id) REFERENCES users(user_id)
+                          FOREIGN KEY(opponent_id) REFERENCES users(user_id),
+                          FOREIGN KEY(winner_id) REFERENCES users(user_id)
                         );
                         """
                     )
                 )
                 conn.execute(text("CREATE INDEX IF NOT EXISTS idx_rsp_pending ON rsp_games(chat_id, status);"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_rsp_stats ON rsp_games(chat_id, challenger_id, opponent_id, status);"))
+
+                # 迁移：添加 winner_id 列（如果不存在）
+                cols = [r[1] for r in conn.execute(text("PRAGMA table_info(rsp_games);")).fetchall()]
+                if "winner_id" not in cols:
+                    conn.execute(text("ALTER TABLE rsp_games ADD COLUMN winner_id INTEGER REFERENCES users(user_id);"))
 
             # partial unique indexes
             conn.execute(
@@ -1391,7 +1401,7 @@ class SQLAlchemyStorage(Storage):
             row = conn.execute(
                 text(
                     """
-                    SELECT id, chat_id, challenger_id, opponent_id, challenger_choice, opponent_choice, status, message_id, created_at
+                    SELECT id, chat_id, challenger_id, opponent_id, challenger_choice, opponent_choice, status, winner_id, message_id, created_at
                     FROM rsp_games
                     WHERE id=:gid;
                     """
@@ -1408,8 +1418,9 @@ class SQLAlchemyStorage(Storage):
             challenger_choice=str(row[4]) if row[4] else None,
             opponent_choice=str(row[5]) if row[5] else None,
             status=str(row[6]),
-            message_id=int(row[7]) if row[7] else None,
-            created_at=self._parse_dt(row[8]),
+            winner_id=int(row[7]) if row[7] else None,
+            message_id=int(row[8]) if row[8] else None,
+            created_at=self._parse_dt(row[9]),
         )
 
     def get_pending_rsp_game(self, *, chat_id: int, user_id: int) -> RSPGame | None:
@@ -1419,7 +1430,7 @@ class SQLAlchemyStorage(Storage):
             row = conn.execute(
                 text(
                     """
-                    SELECT id, chat_id, challenger_id, opponent_id, challenger_choice, opponent_choice, status, message_id, created_at
+                    SELECT id, chat_id, challenger_id, opponent_id, challenger_choice, opponent_choice, status, winner_id, message_id, created_at
                     FROM rsp_games
                     WHERE chat_id=:cid AND (challenger_id=:uid OR opponent_id=:uid) AND status='pending'
                     ORDER BY created_at DESC
@@ -1438,8 +1449,9 @@ class SQLAlchemyStorage(Storage):
             challenger_choice=str(row[4]) if row[4] else None,
             opponent_choice=str(row[5]) if row[5] else None,
             status=str(row[6]),
-            message_id=int(row[7]) if row[7] else None,
-            created_at=self._parse_dt(row[8]),
+            winner_id=int(row[7]) if row[7] else None,
+            message_id=int(row[8]) if row[8] else None,
+            created_at=self._parse_dt(row[9]),
         )
 
     def update_rsp_choice(self, *, game_id: int, user_id: int, choice: str) -> None:
@@ -1464,11 +1476,101 @@ class SQLAlchemyStorage(Storage):
                     {"choice": choice, "gid": game_id},
                 )
 
-    def complete_rsp_game(self, *, game_id: int) -> None:
+    def complete_rsp_game(self, *, game_id: int, winner_id: int | None) -> None:
         with self.engine.begin() as conn:
             conn.execute(
-                text("UPDATE rsp_games SET status='completed' WHERE id=:gid;"),
-                {"gid": game_id},
+                text("UPDATE rsp_games SET status='completed', winner_id=:wid WHERE id=:gid;"),
+                {"wid": winner_id, "gid": game_id},
             )
+
+    def get_rsp_stats(self, *, chat_id: int, user_id: int) -> tuple[int, int, int, int]:
+        """返回 (总场次, 胜场, 负场, 平局)"""
+        with self.engine.connect() as conn:
+            # 总场次
+            total_row = conn.execute(
+                text(
+                    """
+                    SELECT COUNT(*) FROM rsp_games
+                    WHERE chat_id=:cid AND (challenger_id=:uid OR opponent_id=:uid) AND status='completed';
+                    """
+                ),
+                {"cid": chat_id, "uid": user_id},
+            ).fetchone()
+            total = int(total_row[0]) if total_row else 0
+
+            # 胜场
+            wins_row = conn.execute(
+                text(
+                    """
+                    SELECT COUNT(*) FROM rsp_games
+                    WHERE chat_id=:cid AND winner_id=:uid AND status='completed';
+                    """
+                ),
+                {"cid": chat_id, "uid": user_id},
+            ).fetchone()
+            wins = int(wins_row[0]) if wins_row else 0
+
+            # 平局
+            draws_row = conn.execute(
+                text(
+                    """
+                    SELECT COUNT(*) FROM rsp_games
+                    WHERE chat_id=:cid AND (challenger_id=:uid OR opponent_id=:uid)
+                      AND winner_id IS NULL AND status='completed';
+                    """
+                ),
+                {"cid": chat_id, "uid": user_id},
+            ).fetchone()
+            draws = int(draws_row[0]) if draws_row else 0
+
+            # 负场 = 总场次 - 胜场 - 平局
+            losses = total - wins - draws
+
+            return (total, wins, losses, draws)
+
+    def get_rsp_stats_global(self, *, user_id: int) -> tuple[int, int, int, int]:
+        """返回 (总场次, 胜场, 负场, 平局)"""
+        with self.engine.connect() as conn:
+            # 总场次
+            total_row = conn.execute(
+                text(
+                    """
+                    SELECT COUNT(*) FROM rsp_games
+                    WHERE (challenger_id=:uid OR opponent_id=:uid) AND status='completed';
+                    """
+                ),
+                {"uid": user_id},
+            ).fetchone()
+            total = int(total_row[0]) if total_row else 0
+
+            # 胜场
+            wins_row = conn.execute(
+                text(
+                    """
+                    SELECT COUNT(*) FROM rsp_games
+                    WHERE winner_id=:uid AND status='completed';
+                    """
+                ),
+                {"uid": user_id},
+            ).fetchone()
+            wins = int(wins_row[0]) if wins_row else 0
+
+            # 平局
+            draws_row = conn.execute(
+                text(
+                    """
+                    SELECT COUNT(*) FROM rsp_games
+                    WHERE (challenger_id=:uid OR opponent_id=:uid)
+                      AND winner_id IS NULL AND status='completed';
+                    """
+                ),
+                {"uid": user_id},
+            ).fetchone()
+            draws = int(draws_row[0]) if draws_row else 0
+
+            # 负场 = 总场次 - 胜场 - 平局
+            losses = total - wins - draws
+
+            return (total, wins, losses, draws)
 
 

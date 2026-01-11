@@ -740,6 +740,42 @@ async def cmd_rsp(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     _upsert(update, deps)
 
+    # /rsp stats - 查看统计
+    args = [a.strip().lower() for a in (context.args or []) if a.strip()]
+    if args and args[0] in {"stats", "stat", "statistics"}:
+        # 检查是否有 global 参数
+        is_global = "global" in args or "g" in args
+
+        # 检查是否查询别人的统计（回复消息）
+        target = target_user(update)
+        if not target:
+            return
+
+        if is_global:
+            total, wins, losses, draws = deps.storage.get_rsp_stats_global(user_id=target.id)
+            title = f"📊 {display_name(target)} 的全局石头剪刀布战绩"
+        else:
+            total, wins, losses, draws = deps.storage.get_rsp_stats(
+                chat_id=update.effective_chat.id,
+                user_id=target.id
+            )
+            title = f"📊 {display_name(target)} 在本群的石头剪刀布战绩"
+
+        if total == 0:
+            await update.effective_message.reply_text(f"{title}\n\n还没有游戏记录")
+            return
+
+        win_rate = (wins / total * 100) if total > 0 else 0
+        stats_msg = (
+            f"{title}\n\n"
+            f"总场次: {total}\n"
+            f"胜: {wins} ({win_rate:.1f}%)\n"
+            f"负: {losses}\n"
+            f"平: {draws}"
+        )
+        await update.effective_message.reply_text(stats_msg)
+        return
+
     # 检查是否有待处理的游戏
     pending = deps.storage.get_pending_rsp_game(
         chat_id=update.effective_chat.id,
@@ -894,12 +930,16 @@ async def rsp_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         }
 
         # 构建结果消息
+        winner_id = None
         if result == "challenger":
             result_text = f"🎉 {challenger_name} 获胜！"
+            winner_id = game.challenger_id
         elif result == "opponent":
             result_text = f"🎉 {opponent_name} 获胜！"
+            winner_id = game.opponent_id
         else:
             result_text = "🤝 平局！"
+            winner_id = None
 
         result_msg = (
             f"🎮 石头剪刀布结果：\n\n"
@@ -911,8 +951,8 @@ async def rsp_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         # 更新消息
         await query.edit_message_text(result_msg)
 
-        # 标记游戏完成
-        deps.storage.complete_rsp_game(game_id=game.id)
+        # 标记游戏完成并记录获胜者
+        deps.storage.complete_rsp_game(game_id=game.id, winner_id=winner_id)
     else:
         # 还在等待另一方选择
         waiting_for = "对手" if is_challenger else "挑战者"

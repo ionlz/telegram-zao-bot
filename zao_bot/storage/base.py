@@ -41,6 +41,7 @@ class RSPGame:
     challenger_choice: str | None
     opponent_choice: str | None
     status: str  # 'pending', 'completed'
+    winner_id: int | None  # NULL for draw
     message_id: int | None
     created_at: datetime
 
@@ -142,6 +143,8 @@ class Storage(Protocol):
     def get_rsp_game(self, *, game_id: int) -> RSPGame | None: ...
     def get_pending_rsp_game(self, *, chat_id: int, user_id: int) -> RSPGame | None: ...
     def update_rsp_choice(self, *, game_id: int, user_id: int, choice: str) -> None: ...
-    def complete_rsp_game(self, *, game_id: int) -> None: ...
+    def complete_rsp_game(self, *, game_id: int, winner_id: int | None) -> None: ...
+    def get_rsp_stats(self, *, chat_id: int, user_id: int) -> tuple[int, int, int, int]: ...  # (total, wins, losses, draws)
+    def get_rsp_stats_global(self, *, user_id: int) -> tuple[int, int, int, int]: ...  # (total, wins, losses, draws)
 
 
