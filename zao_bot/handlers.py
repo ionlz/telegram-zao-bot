@@ -911,7 +911,7 @@ async def rsp_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     # 查找游戏
     game = deps.storage.get_pending_rsp_game(
-        chat_id=query.message.chat_id,
+        chat_id=query.message.chat.id,
         user_id=query.from_user.id
     )
 
