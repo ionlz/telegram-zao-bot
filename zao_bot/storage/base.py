@@ -32,6 +32,19 @@ class WakeReminder:
     enabled: bool
 
 
+@dataclass(frozen=True)
+class RSPGame:
+    id: int
+    chat_id: int
+    challenger_id: int
+    opponent_id: int
+    challenger_choice: str | None
+    opponent_choice: str | None
+    status: str  # 'pending', 'completed'
+    message_id: int | None
+    created_at: datetime
+
+
 class Storage(Protocol):
     # --- lifecycle ---
     def init_db(self) -> None: ...
@@ -121,5 +134,14 @@ class Storage(Protocol):
     def update_reminder_next_trigger(self, *, reminder_id: int, next_trigger: datetime) -> None: ...
     def delete_reminder(self, *, reminder_id: int) -> None: ...
     def delete_user_reminders(self, *, chat_id: int, user_id: int) -> None: ...
+
+    # --- rock paper scissors ---
+    def create_rsp_game(
+        self, *, chat_id: int, challenger_id: int, opponent_id: int, message_id: int | None, created_at: datetime
+    ) -> int: ...
+    def get_rsp_game(self, *, game_id: int) -> RSPGame | None: ...
+    def get_pending_rsp_game(self, *, chat_id: int, user_id: int) -> RSPGame | None: ...
+    def update_rsp_choice(self, *, game_id: int, user_id: int, choice: str) -> None: ...
+    def complete_rsp_game(self, *, game_id: int) -> None: ...
 
 

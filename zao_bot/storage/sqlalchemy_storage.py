@@ -429,6 +429,49 @@ class SQLAlchemyStorage(Storage):
                 )
                 conn.execute(text("CREATE INDEX IF NOT EXISTS idx_wake_next_trigger ON wake_reminders(next_trigger, enabled);"))
 
+            # rock paper scissors tables
+            if dialect == "postgresql":
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE IF NOT EXISTS rsp_games (
+                          id BIGSERIAL PRIMARY KEY,
+                          chat_id BIGINT NOT NULL REFERENCES chats(chat_id),
+                          challenger_id BIGINT NOT NULL REFERENCES users(user_id),
+                          opponent_id BIGINT NOT NULL REFERENCES users(user_id),
+                          challenger_choice TEXT,
+                          opponent_choice TEXT,
+                          status TEXT NOT NULL,
+                          message_id BIGINT,
+                          created_at TIMESTAMPTZ NOT NULL
+                        );
+                        """
+                    )
+                )
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_rsp_pending ON rsp_games(chat_id, status);"))
+            else:
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE IF NOT EXISTS rsp_games (
+                          id INTEGER PRIMARY KEY AUTOINCREMENT,
+                          chat_id INTEGER NOT NULL,
+                          challenger_id INTEGER NOT NULL,
+                          opponent_id INTEGER NOT NULL,
+                          challenger_choice TEXT,
+                          opponent_choice TEXT,
+                          status TEXT NOT NULL,
+                          message_id INTEGER,
+                          created_at TEXT NOT NULL,
+                          FOREIGN KEY(chat_id) REFERENCES chats(chat_id),
+                          FOREIGN KEY(challenger_id) REFERENCES users(user_id),
+                          FOREIGN KEY(opponent_id) REFERENCES users(user_id)
+                        );
+                        """
+                    )
+                )
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_rsp_pending ON rsp_games(chat_id, status);"))
+
             # partial unique indexes
             conn.execute(
                 text(
@@ -1315,6 +1358,117 @@ class SQLAlchemyStorage(Storage):
             conn.execute(
                 text("DELETE FROM wake_reminders WHERE chat_id=:cid AND user_id=:uid;"),
                 {"cid": chat_id, "uid": user_id},
+            )
+
+    # --- rock paper scissors ---
+    def create_rsp_game(
+        self, *, chat_id: int, challenger_id: int, opponent_id: int, message_id: int | None, created_at: datetime
+    ) -> int:
+        dialect = self.engine.dialect.name
+        ca_val: Any = created_at if dialect == "postgresql" else created_at.isoformat()
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                text(
+                    """
+                    INSERT INTO rsp_games(chat_id, challenger_id, opponent_id, challenger_choice, opponent_choice, status, message_id, created_at)
+                    VALUES(:cid,:challenger,:opponent,NULL,NULL,'pending',:mid,:ca)
+                    RETURNING id;
+                    """ if dialect == "postgresql" else """
+                    INSERT INTO rsp_games(chat_id, challenger_id, opponent_id, challenger_choice, opponent_choice, status, message_id, created_at)
+                    VALUES(:cid,:challenger,:opponent,NULL,NULL,'pending',:mid,:ca);
+                    """
+                ),
+                {"cid": chat_id, "challenger": challenger_id, "opponent": opponent_id, "mid": message_id, "ca": ca_val},
+            )
+            if dialect == "postgresql":
+                return int(result.fetchone()[0])  # type: ignore
+            return int(result.lastrowid)  # type: ignore
+
+    def get_rsp_game(self, *, game_id: int) -> RSPGame | None:
+        from zao_bot.storage.base import RSPGame
+
+        with self.engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    """
+                    SELECT id, chat_id, challenger_id, opponent_id, challenger_choice, opponent_choice, status, message_id, created_at
+                    FROM rsp_games
+                    WHERE id=:gid;
+                    """
+                ),
+                {"gid": game_id},
+            ).fetchone()
+        if not row:
+            return None
+        return RSPGame(
+            id=int(row[0]),
+            chat_id=int(row[1]),
+            challenger_id=int(row[2]),
+            opponent_id=int(row[3]),
+            challenger_choice=str(row[4]) if row[4] else None,
+            opponent_choice=str(row[5]) if row[5] else None,
+            status=str(row[6]),
+            message_id=int(row[7]) if row[7] else None,
+            created_at=self._parse_dt(row[8]),
+        )
+
+    def get_pending_rsp_game(self, *, chat_id: int, user_id: int) -> RSPGame | None:
+        from zao_bot.storage.base import RSPGame
+
+        with self.engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    """
+                    SELECT id, chat_id, challenger_id, opponent_id, challenger_choice, opponent_choice, status, message_id, created_at
+                    FROM rsp_games
+                    WHERE chat_id=:cid AND (challenger_id=:uid OR opponent_id=:uid) AND status='pending'
+                    ORDER BY created_at DESC
+                    LIMIT 1;
+                    """
+                ),
+                {"cid": chat_id, "uid": user_id},
+            ).fetchone()
+        if not row:
+            return None
+        return RSPGame(
+            id=int(row[0]),
+            chat_id=int(row[1]),
+            challenger_id=int(row[2]),
+            opponent_id=int(row[3]),
+            challenger_choice=str(row[4]) if row[4] else None,
+            opponent_choice=str(row[5]) if row[5] else None,
+            status=str(row[6]),
+            message_id=int(row[7]) if row[7] else None,
+            created_at=self._parse_dt(row[8]),
+        )
+
+    def update_rsp_choice(self, *, game_id: int, user_id: int, choice: str) -> None:
+        with self.engine.begin() as conn:
+            # 先查询用户是挑战者还是对手
+            row = conn.execute(
+                text("SELECT challenger_id, opponent_id FROM rsp_games WHERE id=:gid;"),
+                {"gid": game_id},
+            ).fetchone()
+            if not row:
+                return
+
+            challenger_id, opponent_id = int(row[0]), int(row[1])
+            if user_id == challenger_id:
+                conn.execute(
+                    text("UPDATE rsp_games SET challenger_choice=:choice WHERE id=:gid;"),
+                    {"choice": choice, "gid": game_id},
+                )
+            elif user_id == opponent_id:
+                conn.execute(
+                    text("UPDATE rsp_games SET opponent_choice=:choice WHERE id=:gid;"),
+                    {"choice": choice, "gid": game_id},
+                )
+
+    def complete_rsp_game(self, *, game_id: int) -> None:
+        with self.engine.begin() as conn:
+            conn.execute(
+                text("UPDATE rsp_games SET status='completed' WHERE id=:gid;"),
+                {"gid": game_id},
             )
 
 

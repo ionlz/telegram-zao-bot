@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from datetime import timedelta
 
-from telegram import Update, User
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, User
 from telegram.ext import ContextTypes
 
 from config import Settings
@@ -730,5 +730,210 @@ async def cmd_wake(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
     await update.effective_message.reply_text(f"⏰ 叫醒提醒已设置！\n明天 {time_str} 我会在这里@你~")
+
+
+async def cmd_rsp(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """石头剪刀布游戏"""
+    deps: HandlerDeps = context.bot_data["deps"]
+    if not update.effective_chat or not update.effective_user or not update.effective_message:
+        return
+
+    _upsert(update, deps)
+
+    # 检查是否有待处理的游戏
+    pending = deps.storage.get_pending_rsp_game(
+        chat_id=update.effective_chat.id,
+        user_id=update.effective_user.id
+    )
+    if pending:
+        await update.effective_message.reply_text(
+            "你还有一局未完成的游戏！请先完成当前游戏。"
+        )
+        return
+
+    # 获取对手（必须 @ 某人或回复某人的消息）
+    opponent = None
+    if update.effective_message.reply_to_message and update.effective_message.reply_to_message.from_user:
+        opponent = update.effective_message.reply_to_message.from_user
+    elif update.effective_message.entities:
+        # 检查是否有 @mention
+        for entity in update.effective_message.entities:
+            if entity.type == "mention":
+                # 无法直接获取 user_id，需要用户回复消息方式
+                pass
+            elif entity.type == "text_mention" and entity.user:
+                opponent = entity.user
+                break
+
+    if not opponent:
+        await update.effective_message.reply_text(
+            "请回复某人的消息或 @某人 来发起挑战！\n用法: /rsp @用户名"
+        )
+        return
+
+    if opponent.id == update.effective_user.id:
+        await update.effective_message.reply_text("不能和自己玩！")
+        return
+
+    if opponent.is_bot:
+        await update.effective_message.reply_text("不能和机器人玩！")
+        return
+
+    # 检查对手是否有待处理的游戏
+    opponent_pending = deps.storage.get_pending_rsp_game(
+        chat_id=update.effective_chat.id,
+        user_id=opponent.id
+    )
+    if opponent_pending:
+        await update.effective_message.reply_text(
+            f"{display_name(opponent)} 还有一局未完成的游戏！"
+        )
+        return
+
+    # 创建游戏按钮
+    keyboard = [
+        [
+            InlineKeyboardButton("✊ 石头", callback_data="rsp:rock"),
+            InlineKeyboardButton("✋ 布", callback_data="rsp:paper"),
+            InlineKeyboardButton("✌️ 剪刀", callback_data="rsp:scissors"),
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    # 发送游戏消息
+    msg = await update.effective_message.reply_text(
+        f"🎮 {display_name(update.effective_user)} 向 {display_name(opponent)} 发起了石头剪刀布挑战！\n\n"
+        f"请双方点击下方按钮选择：",
+        reply_markup=reply_markup
+    )
+
+    # 创建游戏记录
+    deps.storage.create_rsp_game(
+        chat_id=update.effective_chat.id,
+        challenger_id=update.effective_user.id,
+        opponent_id=opponent.id,
+        message_id=msg.message_id,
+        created_at=event_time(update, deps)
+    )
+
+
+async def rsp_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """处理石头剪刀布按钮点击"""
+    deps: HandlerDeps = context.bot_data["deps"]
+    query = update.callback_query
+    if not query or not query.data or not query.message or not query.from_user:
+        return
+
+    await query.answer()
+
+    # 解析 callback_data: "rsp:rock" / "rsp:paper" / "rsp:scissors"
+    parts = query.data.split(":")
+    if len(parts) != 2 or parts[0] != "rsp":
+        return
+
+    choice = parts[1]  # "rock", "paper", "scissors"
+    if choice not in {"rock", "paper", "scissors"}:
+        return
+
+    # 查找游戏
+    game = deps.storage.get_pending_rsp_game(
+        chat_id=query.message.chat_id,
+        user_id=query.from_user.id
+    )
+
+    if not game:
+        await query.answer("找不到你的游戏记录！", show_alert=True)
+        return
+
+    # 检查是否是游戏参与者
+    if query.from_user.id not in {game.challenger_id, game.opponent_id}:
+        await query.answer("这不是你的游戏！", show_alert=True)
+        return
+
+    # 检查是否已经选择过
+    is_challenger = query.from_user.id == game.challenger_id
+    if is_challenger and game.challenger_choice:
+        await query.answer("你已经做过选择了！", show_alert=True)
+        return
+    if not is_challenger and game.opponent_choice:
+        await query.answer("你已经做过选择了！", show_alert=True)
+        return
+
+    # 保存选择
+    deps.storage.update_rsp_choice(
+        game_id=game.id,
+        user_id=query.from_user.id,
+        choice=choice
+    )
+
+    # 重新获取游戏状态
+    game = deps.storage.get_rsp_game(game_id=game.id)
+    if not game:
+        return
+
+    # 检查是否双方都已选择
+    if game.challenger_choice and game.opponent_choice:
+        # 游戏结束，计算结果
+        result = _determine_rsp_winner(game.challenger_choice, game.opponent_choice)
+
+        # 获取用户信息
+        try:
+            challenger = await context.bot.get_chat_member(game.chat_id, game.challenger_id)
+            opponent = await context.bot.get_chat_member(game.chat_id, game.opponent_id)
+            challenger_name = display_name(challenger.user)
+            opponent_name = display_name(opponent.user)
+        except Exception:
+            challenger_name = str(game.challenger_id)
+            opponent_name = str(game.opponent_id)
+
+        # 格式化选择
+        choice_emoji = {
+            "rock": "✊ 石头",
+            "paper": "✋ 布",
+            "scissors": "✌️ 剪刀"
+        }
+
+        # 构建结果消息
+        if result == "challenger":
+            result_text = f"🎉 {challenger_name} 获胜！"
+        elif result == "opponent":
+            result_text = f"🎉 {opponent_name} 获胜！"
+        else:
+            result_text = "🤝 平局！"
+
+        result_msg = (
+            f"🎮 石头剪刀布结果：\n\n"
+            f"{challenger_name}: {choice_emoji[game.challenger_choice]}\n"
+            f"{opponent_name}: {choice_emoji[game.opponent_choice]}\n\n"
+            f"{result_text}"
+        )
+
+        # 更新消息
+        await query.edit_message_text(result_msg)
+
+        # 标记游戏完成
+        deps.storage.complete_rsp_game(game_id=game.id)
+    else:
+        # 还在等待另一方选择
+        waiting_for = "对手" if is_challenger else "挑战者"
+        await query.answer(f"你的选择已记录！等待{waiting_for}选择...", show_alert=True)
+
+
+def _determine_rsp_winner(challenger_choice: str, opponent_choice: str) -> str:
+    """判断胜负
+    Returns: "challenger", "opponent", or "draw"
+    """
+    if challenger_choice == opponent_choice:
+        return "draw"
+
+    win_conditions = {
+        "rock": "scissors",     # 石头赢剪刀
+        "paper": "rock",        # 布赢石头
+        "scissors": "paper"     # 剪刀赢布
+    }
+
+    if win_conditions.get(challenger_choice) == opponent_choice:
+        return "challenger"
+    return "opponent"
 
 

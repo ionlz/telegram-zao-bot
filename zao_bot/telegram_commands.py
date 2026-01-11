@@ -24,6 +24,7 @@ def default_bot_commands() -> list[BotCommand]:
         BotCommand("heatmap", "查看签到热力图（可回复某人）"),
         BotCommand("gun", "俄罗斯轮盘游戏（/gun n 创建）"),
         BotCommand("wake", "设置叫醒提醒（/wake HH:MM）"),
+        BotCommand("rsp", "石头剪刀布游戏（回复某人或@某人）"),
     ]
 
 

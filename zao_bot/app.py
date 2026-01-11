@@ -4,11 +4,11 @@ import logging
 from pathlib import Path
 
 from telegram import BotCommandScopeAllGroupChats, BotCommandScopeAllPrivateChats, BotCommandScopeDefault, Update
-from telegram.ext import Application, CommandHandler, JobQueue
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, JobQueue
 from telegram.request import HTTPXRequest
 
 from config import load_settings
-from zao_bot.handlers import HandlerDeps, cmd_ach, cmd_achrank, cmd_awake, cmd_gun, cmd_heatmap, cmd_rank, cmd_start, cmd_wake, cmd_wan, cmd_year, cmd_zao
+from zao_bot.handlers import HandlerDeps, cmd_ach, cmd_achrank, cmd_awake, cmd_gun, cmd_heatmap, cmd_rank, cmd_rsp, cmd_start, cmd_wake, cmd_wan, cmd_year, cmd_zao, rsp_callback
 from zao_bot.messages import MessageCatalog
 from zao_bot.storage.factory import get_storage
 from zao_bot.telegram_commands import default_bot_commands
@@ -94,6 +94,8 @@ def build_app(
     app.add_handler(CommandHandler("heatmap", cmd_heatmap))
     app.add_handler(CommandHandler("gun", cmd_gun))
     app.add_handler(CommandHandler("wake", cmd_wake))
+    app.add_handler(CommandHandler("rsp", cmd_rsp))
+    app.add_handler(CallbackQueryHandler(rsp_callback, pattern="^rsp:"))
 
     # 添加定时任务：每分钟检查一次待触发的提醒
     if app.job_queue:
