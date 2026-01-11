@@ -513,26 +513,26 @@ def generate_heatmap(storage: Storage, user_id: int, year: int, month: int, tz: 
     # 生成日历矩阵
     cal = calendar.monthcalendar(year, month)
 
-    # 构建热力图
+    # 构建热力图（使用全角空格确保对齐）
     lines = [f"📅 {year}年{month}月 签到热力图\n"]
-    lines.append("一 二 三 四 五 六 日")
+    lines.append("一　二　三　四　五　六　日")  # 使用全角空格
 
     for week_idx, week in enumerate(cal, start=1):
         line = ""
         for day in week:
             if day == 0:  # 空白日期
-                line += "   "
+                line += "　　"  # 两个全角空格
             else:
                 day_str = f"{year}-{month:02d}-{day:02d}"
                 if day_str in checkin_days:
-                    line += "🟩 "
+                    line += "🟩　"  # emoji + 全角空格
                 else:
-                    line += "⬜ "
+                    line += "⬜　"  # emoji + 全角空格
         lines.append(line.rstrip())
 
     # 统计信息
     lines.append("")
-    lines.append("🟩 已签到  ⬜ 未签到")
+    lines.append("🟩 已签到　⬜ 未签到")
 
     # 计算连续签到天数
     streak = calculate_current_streak(storage, user_id, tz)
