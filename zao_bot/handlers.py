@@ -898,15 +898,15 @@ async def rsp_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not query or not query.data or not query.message or not query.from_user:
         return
 
-    await query.answer()
-
     # 解析 callback_data: "rsp:rock" / "rsp:paper" / "rsp:scissors"
     parts = query.data.split(":")
     if len(parts) != 2 or parts[0] != "rsp":
+        await query.answer()
         return
 
     choice = parts[1]  # "rock", "paper", "scissors"
     if choice not in {"rock", "paper", "scissors"}:
+        await query.answer()
         return
 
     # 查找游戏
@@ -939,6 +939,9 @@ async def rsp_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         user_id=query.from_user.id,
         choice=choice
     )
+
+    # 立即给用户反馈
+    await query.answer("你的选择已记录！", show_alert=False)
 
     # 重新获取游戏状态
     game = deps.storage.get_rsp_game(game_id=game.id)
@@ -986,8 +989,18 @@ async def rsp_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             f"{result_text}"
         )
 
-        # 更新消息（移除按钮）
-        await query.edit_message_text(result_msg)
+        # 更新消息（显式移除按钮）
+        try:
+            await query.edit_message_text(result_msg, reply_markup=None)
+        except Exception:
+            # 如果编辑失败（消息可能被删除），尝试发送新消息
+            try:
+                await context.bot.send_message(
+                    chat_id=game.chat_id,
+                    text=result_msg
+                )
+            except Exception:
+                pass
 
         # 标记游戏完成并记录获胜者
         deps.storage.complete_rsp_game(game_id=game.id, winner_id=winner_id)
@@ -1010,8 +1023,11 @@ async def rsp_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        await query.edit_message_text(waiting_msg, reply_markup=reply_markup)
-        await query.answer("你的选择已记录！", show_alert=False)
+        try:
+            await query.edit_message_text(waiting_msg, reply_markup=reply_markup)
+        except Exception:
+            # 编辑失败，忽略
+            pass
 
 
 def _determine_rsp_winner(challenger_choice: str, opponent_choice: str) -> str:
