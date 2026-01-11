@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import calendar
+import random
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from datetime import timedelta
@@ -473,5 +475,260 @@ async def cmd_achrank(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     await update.effective_message.reply_text(deps.messages.render("ach_rank_help"))
+
+
+def calculate_current_streak(storage: Storage, user_id: int, tz: timezone) -> int:
+    """从今天倒推，计算连续签到天数"""
+    today = business_day_key(datetime.now(tz=tz), cutoff_hour=4)
+    # 获取最近365天的签到记录
+    today_date = date.fromisoformat(today)
+    start_date = (today_date - timedelta(days=365)).isoformat()
+    checkin_days = storage.get_user_checkin_days(
+        user_id=user_id, start_date=start_date, end_date=today
+    )
+
+    streak = 0
+    current_day = today_date
+    for _ in range(365):
+        if current_day.isoformat() in checkin_days:
+            streak += 1
+            current_day -= timedelta(days=1)
+        else:
+            break
+    return streak
+
+
+def generate_heatmap(storage: Storage, user_id: int, year: int, month: int, tz: timezone) -> str:
+    """生成用户的月度签到热力图"""
+    # 获取当月的日期范围
+    month_days = calendar.monthrange(year, month)[1]
+    start_date = f"{year}-{month:02d}-01"
+    end_date = f"{year}-{month:02d}-{month_days:02d}"
+
+    # 获取签到日期集合
+    checkin_days = storage.get_user_checkin_days(
+        user_id=user_id, start_date=start_date, end_date=end_date
+    )
+
+    # 生成日历矩阵
+    cal = calendar.monthcalendar(year, month)
+
+    # 构建热力图
+    lines = [f"📅 {year}年{month}月 签到热力图\n"]
+    lines.append("一 二 三 四 五 六 日")
+
+    for week_idx, week in enumerate(cal, start=1):
+        line = ""
+        for day in week:
+            if day == 0:  # 空白日期
+                line += "   "
+            else:
+                day_str = f"{year}-{month:02d}-{day:02d}"
+                if day_str in checkin_days:
+                    line += "🟩 "
+                else:
+                    line += "⬜ "
+        lines.append(line.rstrip())
+
+    # 统计信息
+    lines.append("")
+    lines.append("🟩 已签到  ⬜ 未签到")
+
+    # 计算连续签到天数
+    streak = calculate_current_streak(storage, user_id, tz)
+    total_days = len(checkin_days)
+
+    lines.append(f"连续签到: {streak}天 🔥")
+    lines.append(f"本月签到: {total_days}/{month_days}天")
+
+    return "\n".join(lines)
+
+
+async def cmd_heatmap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """显示用户的签到热力图"""
+    deps: HandlerDeps = context.bot_data["deps"]
+    if not update.effective_message or not update.effective_user:
+        return
+
+    # 支持查询别人的热力图（回复消息）
+    target = target_user(update)
+    if not target:
+        return
+
+    # 解析参数（可选：指定月份）
+    args = context.args or []
+    now = event_time(update, deps)
+    year, month = now.year, now.month
+
+    if args and len(args[0]) >= 7:  # YYYY-MM
+        try:
+            parts = args[0].split('-')
+            year = int(parts[0])
+            month = int(parts[1])
+            if not (1 <= month <= 12):
+                raise ValueError
+        except (ValueError, IndexError):
+            await update.effective_message.reply_text(
+                "日期格式错误，请使用 YYYY-MM 格式（如 2026-01）"
+            )
+            return
+
+    # 生成热力图
+    heatmap_text = generate_heatmap(
+        storage=deps.storage,
+        user_id=target.id,
+        year=year,
+        month=month,
+        tz=deps.settings.tz,
+    )
+
+    await update.effective_message.reply_text(heatmap_text)
+
+
+async def cmd_gun(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """俄罗斯轮盘游戏"""
+    deps: HandlerDeps = context.bot_data["deps"]
+    if not update.effective_chat or not update.effective_user or not update.effective_message:
+        return
+
+    _upsert(update, deps)
+    chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
+    args = context.args or []
+
+    # /gun n - 创建新游戏
+    if args:
+        try:
+            chambers = int(args[0])
+            if not (2 <= chambers <= 20):
+                raise ValueError
+        except (ValueError, IndexError):
+            await update.effective_message.reply_text("弹槽数量必须是 2-20 之间的数字")
+            return
+
+        # 检查是否已有游戏
+        existing = deps.storage.get_active_roulette(chat_id=chat_id)
+        if existing:
+            remaining = existing.chambers - existing.current_position
+            await update.effective_message.reply_text(
+                f"已经有一把枪在转了！\n剩余 {remaining} 发弹槽（1/{remaining} 概率中枪）"
+            )
+            return
+
+        # 创建新游戏
+        bullet_position = random.randint(1, chambers)
+        deps.storage.create_roulette(
+            chat_id=chat_id,
+            chambers=chambers,
+            bullet_position=bullet_position,
+            created_by=user_id,
+            created_at=event_time(update, deps),
+        )
+
+        await update.effective_message.reply_text(
+            f"🔫 俄罗斯轮盘已装填！\n"
+            f"弹槽: {chambers}发（1/{chambers} 概率中枪）\n"
+            f"使用 /gun 扣动扳机\n"
+            f"祝你好运~ 😈"
+        )
+        return
+
+    # /gun - 扣动扳机
+    game = deps.storage.get_active_roulette(chat_id=chat_id)
+    if not game:
+        await update.effective_message.reply_text("还没有装填弹药！\n使用 /gun 6 创建游戏")
+        return
+
+    # 扣动扳机
+    new_position = game.current_position + 1
+    is_shot = new_position == game.bullet_position
+
+    # 记录尝试
+    deps.storage.record_roulette_attempt(
+        chat_id=chat_id,
+        user_id=user_id,
+        position=new_position,
+        result="shot" if is_shot else "safe",
+        created_at=event_time(update, deps),
+    )
+
+    if is_shot:
+        # 中枪！游戏结束
+        deps.storage.delete_roulette(chat_id=chat_id)
+        await update.effective_message.reply_text(
+            f"💥 BANG! {display_name(update.effective_user)} 中枪了！\n" f"游戏结束，使用 /gun n 重新开始"
+        )
+    else:
+        # 安全
+        remaining = game.chambers - new_position
+        probability = f"1/{remaining}" if remaining > 0 else "?"
+
+        deps.storage.update_roulette_position(chat_id=chat_id, position=new_position)
+
+        await update.effective_message.reply_text(
+            f"🔫 咔哒~ {display_name(update.effective_user)} 安全！\n" f"剩余弹槽: {remaining}发（{probability} 概率中枪）"
+        )
+
+
+async def cmd_wake(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """设置叫醒提醒"""
+    deps: HandlerDeps = context.bot_data["deps"]
+    if not update.effective_chat or not update.effective_user or not update.effective_message:
+        return
+
+    _upsert(update, deps)
+    args = [a.strip() for a in (context.args or []) if a.strip()]
+
+    # /wake list - 查看提醒列表
+    if args and args[0] == "list":
+        reminders = deps.storage.get_user_reminders(chat_id=update.effective_chat.id, user_id=update.effective_user.id)
+        if not reminders:
+            await update.effective_message.reply_text("你还没有设置提醒")
+            return
+
+        text = "⏰ 你的叫醒提醒:\n"
+        for r in reminders:
+            text += f"- {r.wake_time} {'(每天)' if r.repeat else ''}\n"
+        await update.effective_message.reply_text(text)
+        return
+
+    # /wake cancel - 取消提醒
+    if args and args[0] == "cancel":
+        deps.storage.delete_user_reminders(chat_id=update.effective_chat.id, user_id=update.effective_user.id)
+        await update.effective_message.reply_text("已取消所有提醒")
+        return
+
+    # /wake HH:MM - 设置提醒
+    if not args:
+        await update.effective_message.reply_text("用法: /wake 07:00 或 /wake list 或 /wake cancel")
+        return
+
+    # 解析时间
+    time_str = args[0]
+    try:
+        hour, minute = map(int, time_str.split(':'))
+        if not (0 <= hour < 24 and 0 <= minute < 60):
+            raise ValueError
+    except (ValueError, IndexError):
+        await update.effective_message.reply_text("时间格式错误，请使用 HH:MM 格式（如 07:30）")
+        return
+
+    # 计算下次触发时间（明天的这个时间）
+    now = event_time(update, deps)
+    next_trigger = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if next_trigger <= now:
+        next_trigger += timedelta(days=1)
+
+    # 保存提醒
+    deps.storage.create_reminder(
+        chat_id=update.effective_chat.id,
+        user_id=update.effective_user.id,
+        wake_time=time_str,
+        next_trigger=next_trigger,
+        repeat=False,  # 默认一次性，未来可扩展
+        created_at=now,
+    )
+
+    await update.effective_message.reply_text(f"⏰ 叫醒提醒已设置！\n明天 {time_str} 我会在这里@你~")
 
 

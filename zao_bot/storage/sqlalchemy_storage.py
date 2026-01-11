@@ -323,6 +323,112 @@ class SQLAlchemyStorage(Storage):
                     )
                 )
 
+            # russian roulette tables
+            if dialect == "postgresql":
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE IF NOT EXISTS russian_roulette (
+                          chat_id BIGINT PRIMARY KEY REFERENCES chats(chat_id),
+                          chambers INT NOT NULL,
+                          bullet_position INT NOT NULL,
+                          current_position INT NOT NULL,
+                          created_by BIGINT NOT NULL REFERENCES users(user_id),
+                          created_at TIMESTAMPTZ NOT NULL
+                        );
+                        """
+                    )
+                )
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE IF NOT EXISTS roulette_attempts (
+                          id BIGSERIAL PRIMARY KEY,
+                          chat_id BIGINT NOT NULL REFERENCES chats(chat_id),
+                          user_id BIGINT NOT NULL REFERENCES users(user_id),
+                          position INT NOT NULL,
+                          result TEXT NOT NULL,
+                          created_at TIMESTAMPTZ NOT NULL
+                        );
+                        """
+                    )
+                )
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_roulette_attempts ON roulette_attempts(chat_id, created_at);"))
+            else:
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE IF NOT EXISTS russian_roulette (
+                          chat_id INTEGER PRIMARY KEY,
+                          chambers INTEGER NOT NULL,
+                          bullet_position INTEGER NOT NULL,
+                          current_position INTEGER NOT NULL,
+                          created_by INTEGER NOT NULL,
+                          created_at TEXT NOT NULL,
+                          FOREIGN KEY(chat_id) REFERENCES chats(chat_id),
+                          FOREIGN KEY(created_by) REFERENCES users(user_id)
+                        );
+                        """
+                    )
+                )
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE IF NOT EXISTS roulette_attempts (
+                          id INTEGER PRIMARY KEY AUTOINCREMENT,
+                          chat_id INTEGER NOT NULL,
+                          user_id INTEGER NOT NULL,
+                          position INTEGER NOT NULL,
+                          result TEXT NOT NULL,
+                          created_at TEXT NOT NULL,
+                          FOREIGN KEY(chat_id) REFERENCES chats(chat_id),
+                          FOREIGN KEY(user_id) REFERENCES users(user_id)
+                        );
+                        """
+                    )
+                )
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_roulette_attempts ON roulette_attempts(chat_id, created_at);"))
+
+            # wake reminders tables
+            if dialect == "postgresql":
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE IF NOT EXISTS wake_reminders (
+                          id BIGSERIAL PRIMARY KEY,
+                          chat_id BIGINT NOT NULL REFERENCES chats(chat_id),
+                          user_id BIGINT NOT NULL REFERENCES users(user_id),
+                          wake_time TEXT NOT NULL,
+                          next_trigger TIMESTAMPTZ NOT NULL,
+                          repeat BOOLEAN DEFAULT false,
+                          enabled BOOLEAN DEFAULT true,
+                          created_at TIMESTAMPTZ NOT NULL
+                        );
+                        """
+                    )
+                )
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_wake_next_trigger ON wake_reminders(next_trigger, enabled);"))
+            else:
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE IF NOT EXISTS wake_reminders (
+                          id INTEGER PRIMARY KEY AUTOINCREMENT,
+                          chat_id INTEGER NOT NULL,
+                          user_id INTEGER NOT NULL,
+                          wake_time TEXT NOT NULL,
+                          next_trigger TEXT NOT NULL,
+                          repeat INTEGER DEFAULT 0,
+                          enabled INTEGER DEFAULT 1,
+                          created_at TEXT NOT NULL,
+                          FOREIGN KEY(chat_id) REFERENCES chats(chat_id),
+                          FOREIGN KEY(user_id) REFERENCES users(user_id)
+                        );
+                        """
+                    )
+                )
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_wake_next_trigger ON wake_reminders(next_trigger, enabled);"))
+
             # partial unique indexes
             conn.execute(
                 text(
@@ -520,6 +626,23 @@ class SQLAlchemyStorage(Storage):
             ).fetchone()
         n = int(r[0]) if r else 0
         return n if n > 0 else 1
+
+    def get_user_checkin_days(self, *, user_id: int, start_date: str, end_date: str) -> set[str]:
+        with self.engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT DISTINCT session_day
+                    FROM sessions
+                    WHERE user_id=:uid
+                      AND session_day IS NOT NULL
+                      AND session_day BETWEEN :start AND :end
+                    ORDER BY session_day;
+                    """
+                ),
+                {"uid": user_id, "start": start_date, "end": end_date},
+            ).fetchall()
+        return {str(r[0]) for r in rows if r[0]}
 
     # --- leaderboard ---
     def leaderboard(self, *, chat_id: int, mode: str, now: datetime) -> list[tuple[int, str, int]]:
@@ -1019,5 +1142,179 @@ class SQLAlchemyStorage(Storage):
             (int(uid), _display_name(str(name), int(uid)), int(streak), int(cid) if cid is not None else None, str(ctitle) if ctitle is not None else None)
             for (uid, name, streak, cid, ctitle) in rows
         ]
+
+    # --- russian roulette ---
+    def get_active_roulette(self, *, chat_id: int) -> RouletteGame | None:
+        from zao_bot.storage.base import RouletteGame
+
+        with self.engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    """
+                    SELECT chat_id, chambers, bullet_position, current_position, created_by, created_at
+                    FROM russian_roulette
+                    WHERE chat_id=:cid;
+                    """
+                ),
+                {"cid": chat_id},
+            ).fetchone()
+        if not row:
+            return None
+        return RouletteGame(
+            chat_id=int(row[0]),
+            chambers=int(row[1]),
+            bullet_position=int(row[2]),
+            current_position=int(row[3]),
+            created_by=int(row[4]),
+            created_at=self._parse_dt(row[5]),
+        )
+
+    def create_roulette(
+        self, *, chat_id: int, chambers: int, bullet_position: int, created_by: int, created_at: datetime
+    ) -> None:
+        dialect = self.engine.dialect.name
+        ca_val: Any = created_at if dialect == "postgresql" else created_at.isoformat()
+        with self.engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO russian_roulette(chat_id, chambers, bullet_position, current_position, created_by, created_at)
+                    VALUES(:cid,:ch,:bp,0,:cb,:ca);
+                    """
+                ),
+                {"cid": chat_id, "ch": chambers, "bp": bullet_position, "cb": created_by, "ca": ca_val},
+            )
+
+    def update_roulette_position(self, *, chat_id: int, position: int) -> None:
+        with self.engine.begin() as conn:
+            conn.execute(
+                text("UPDATE russian_roulette SET current_position=:pos WHERE chat_id=:cid;"),
+                {"pos": position, "cid": chat_id},
+            )
+
+    def delete_roulette(self, *, chat_id: int) -> None:
+        with self.engine.begin() as conn:
+            conn.execute(text("DELETE FROM russian_roulette WHERE chat_id=:cid;"), {"cid": chat_id})
+
+    def record_roulette_attempt(
+        self, *, chat_id: int, user_id: int, position: int, result: str, created_at: datetime
+    ) -> None:
+        dialect = self.engine.dialect.name
+        ca_val: Any = created_at if dialect == "postgresql" else created_at.isoformat()
+        with self.engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO roulette_attempts(chat_id, user_id, position, result, created_at)
+                    VALUES(:cid,:uid,:pos,:res,:ca);
+                    """
+                ),
+                {"cid": chat_id, "uid": user_id, "pos": position, "res": result, "ca": ca_val},
+            )
+
+    # --- wake reminders ---
+    def create_reminder(
+        self, *, chat_id: int, user_id: int, wake_time: str, next_trigger: datetime, repeat: bool, created_at: datetime
+    ) -> int:
+        dialect = self.engine.dialect.name
+        nt_val: Any = next_trigger if dialect == "postgresql" else next_trigger.isoformat()
+        ca_val: Any = created_at if dialect == "postgresql" else created_at.isoformat()
+        repeat_val: Any = repeat if dialect == "postgresql" else (1 if repeat else 0)
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                text(
+                    """
+                    INSERT INTO wake_reminders(chat_id, user_id, wake_time, next_trigger, repeat, enabled, created_at)
+                    VALUES(:cid,:uid,:wt,:nt,:rep,true,:ca)
+                    RETURNING id;
+                    """ if dialect == "postgresql" else """
+                    INSERT INTO wake_reminders(chat_id, user_id, wake_time, next_trigger, repeat, enabled, created_at)
+                    VALUES(:cid,:uid,:wt,:nt,:rep,1,:ca);
+                    """
+                ),
+                {"cid": chat_id, "uid": user_id, "wt": wake_time, "nt": nt_val, "rep": repeat_val, "ca": ca_val},
+            )
+            if dialect == "postgresql":
+                return int(result.fetchone()[0])  # type: ignore
+            return int(result.lastrowid)  # type: ignore
+
+    def get_pending_reminders(self, *, now: datetime) -> list[WakeReminder]:
+        from zao_bot.storage.base import WakeReminder
+
+        dialect = self.engine.dialect.name
+        now_val: Any = now if dialect == "postgresql" else now.isoformat()
+        with self.engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT id, chat_id, user_id, wake_time, next_trigger, repeat, enabled
+                    FROM wake_reminders
+                    WHERE enabled=:enabled AND next_trigger <= :now
+                    ORDER BY next_trigger;
+                    """
+                ),
+                {"enabled": True if dialect == "postgresql" else 1, "now": now_val},
+            ).fetchall()
+        return [
+            WakeReminder(
+                id=int(r[0]),
+                chat_id=int(r[1]),
+                user_id=int(r[2]),
+                wake_time=str(r[3]),
+                next_trigger=self._parse_dt(r[4]),
+                repeat=bool(r[5]) if dialect == "postgresql" else bool(int(r[5])),
+                enabled=bool(r[6]) if dialect == "postgresql" else bool(int(r[6])),
+            )
+            for r in rows
+        ]
+
+    def get_user_reminders(self, *, chat_id: int, user_id: int) -> list[WakeReminder]:
+        from zao_bot.storage.base import WakeReminder
+
+        dialect = self.engine.dialect.name
+        with self.engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT id, chat_id, user_id, wake_time, next_trigger, repeat, enabled
+                    FROM wake_reminders
+                    WHERE chat_id=:cid AND user_id=:uid AND enabled=:enabled
+                    ORDER BY wake_time;
+                    """
+                ),
+                {"cid": chat_id, "uid": user_id, "enabled": True if dialect == "postgresql" else 1},
+            ).fetchall()
+        return [
+            WakeReminder(
+                id=int(r[0]),
+                chat_id=int(r[1]),
+                user_id=int(r[2]),
+                wake_time=str(r[3]),
+                next_trigger=self._parse_dt(r[4]),
+                repeat=bool(r[5]) if dialect == "postgresql" else bool(int(r[5])),
+                enabled=bool(r[6]) if dialect == "postgresql" else bool(int(r[6])),
+            )
+            for r in rows
+        ]
+
+    def update_reminder_next_trigger(self, *, reminder_id: int, next_trigger: datetime) -> None:
+        dialect = self.engine.dialect.name
+        nt_val: Any = next_trigger if dialect == "postgresql" else next_trigger.isoformat()
+        with self.engine.begin() as conn:
+            conn.execute(
+                text("UPDATE wake_reminders SET next_trigger=:nt WHERE id=:id;"),
+                {"nt": nt_val, "id": reminder_id},
+            )
+
+    def delete_reminder(self, *, reminder_id: int) -> None:
+        with self.engine.begin() as conn:
+            conn.execute(text("DELETE FROM wake_reminders WHERE id=:id;"), {"id": reminder_id})
+
+    def delete_user_reminders(self, *, chat_id: int, user_id: int) -> None:
+        with self.engine.begin() as conn:
+            conn.execute(
+                text("DELETE FROM wake_reminders WHERE chat_id=:cid AND user_id=:uid;"),
+                {"cid": chat_id, "uid": user_id},
+            )
 
 

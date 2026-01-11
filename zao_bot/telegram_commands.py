@@ -21,6 +21,9 @@ def default_bot_commands() -> list[BotCommand]:
         BotCommand("rank", "让我看看!（可加 all/global）"),
         BotCommand("ach", "应该得记下些什么（可加 global/可回复某人）"),
         BotCommand("achrank", "你们都咋样了（daily/streak/ontime/longday，可加 global）"),
+        BotCommand("heatmap", "查看签到热力图（可回复某人）"),
+        BotCommand("gun", "俄罗斯轮盘游戏（/gun n 创建）"),
+        BotCommand("wake", "设置叫醒提醒（/wake HH:MM）"),
     ]
 
 

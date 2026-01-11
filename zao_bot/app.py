@@ -8,13 +8,49 @@ from telegram.ext import Application, CommandHandler
 from telegram.request import HTTPXRequest
 
 from config import load_settings
-from zao_bot.handlers import HandlerDeps, cmd_ach, cmd_achrank, cmd_awake, cmd_rank, cmd_start, cmd_wan, cmd_year, cmd_zao
+from zao_bot.handlers import HandlerDeps, cmd_ach, cmd_achrank, cmd_awake, cmd_gun, cmd_heatmap, cmd_rank, cmd_start, cmd_wake, cmd_wan, cmd_year, cmd_zao
 from zao_bot.messages import MessageCatalog
 from zao_bot.storage.factory import get_storage
 from zao_bot.telegram_commands import default_bot_commands
 
 
 LOG = logging.getLogger("zao-bot")
+
+
+async def check_wake_reminders(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """定期检查是否有需要触发的提醒"""
+    from datetime import datetime, timedelta
+
+    deps: HandlerDeps = context.bot_data.get("deps")
+    if not deps:
+        return
+
+    now = datetime.now(tz=deps.settings.tz)
+    reminders = deps.storage.get_pending_reminders(now=now)
+
+    for reminder in reminders:
+        try:
+            # 构建提醒消息
+            user_mention = f'<a href="tg://user?id={reminder.user_id}">提醒</a>'
+            message = f"☀️ {user_mention} 该起床啦！现在是 {now.strftime('%H:%M')}\n别忘了 /zao 签到开始新的一天~"
+
+            await context.bot.send_message(
+                chat_id=reminder.chat_id,
+                text=message,
+                parse_mode="HTML",
+            )
+
+            # 更新或删除提醒
+            if reminder.repeat:
+                # 重复提醒：计算下次触发时间（明天同一时间）
+                next_trigger = reminder.next_trigger + timedelta(days=1)
+                deps.storage.update_reminder_next_trigger(reminder_id=reminder.id, next_trigger=next_trigger)
+            else:
+                # 一次性提醒：删除
+                deps.storage.delete_reminder(reminder_id=reminder.id)
+        except Exception as e:
+            # 记录错误但继续处理其他提醒
+            LOG.exception(f"Wake reminder error for reminder_id={reminder.id}: {e}")
 
 
 def build_app(
@@ -55,6 +91,13 @@ def build_app(
     app.add_handler(CommandHandler("ach", cmd_ach))
     app.add_handler(CommandHandler("achievements", cmd_ach))
     app.add_handler(CommandHandler("achrank", cmd_achrank))
+    app.add_handler(CommandHandler("heatmap", cmd_heatmap))
+    app.add_handler(CommandHandler("gun", cmd_gun))
+    app.add_handler(CommandHandler("wake", cmd_wake))
+
+    # 添加定时任务：每分钟检查一次待触发的提醒
+    app.job_queue.run_repeating(check_wake_reminders, interval=60, first=10)
+
     return app
 
 
