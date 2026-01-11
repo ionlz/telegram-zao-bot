@@ -233,8 +233,6 @@ async def cmd_wan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                         "checkout_cross_day",
                         name=display_name(update.effective_user),
                         day=open_day,
-                        today=today_key,
-                        check_in=fmt_dt(any_open.check_in),
                     )
                 )
                 return
