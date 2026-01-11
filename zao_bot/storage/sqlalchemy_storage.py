@@ -1483,6 +1483,13 @@ class SQLAlchemyStorage(Storage):
                 {"wid": winner_id, "gid": game_id},
             )
 
+    def delete_rsp_game(self, *, game_id: int) -> None:
+        with self.engine.begin() as conn:
+            conn.execute(
+                text("DELETE FROM rsp_games WHERE id=:gid;"),
+                {"gid": game_id},
+            )
+
     def get_rsp_stats(self, *, chat_id: int, user_id: int) -> tuple[int, int, int, int]:
         """返回 (总场次, 胜场, 负场, 平局)"""
         with self.engine.connect() as conn:

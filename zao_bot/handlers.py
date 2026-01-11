@@ -776,6 +776,43 @@ async def cmd_rsp(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.effective_message.reply_text(stats_msg)
         return
 
+    # /rsp ca/cancel - 取消当前游戏
+    if args and args[0] in {"ca", "cancel"}:
+        pending = deps.storage.get_pending_rsp_game(
+            chat_id=update.effective_chat.id,
+            user_id=update.effective_user.id
+        )
+        if not pending:
+            await update.effective_message.reply_text("你没有待处理的游戏")
+            return
+
+        # 获取双方用户名
+        try:
+            challenger = await context.bot.get_chat_member(pending.chat_id, pending.challenger_id)
+            opponent = await context.bot.get_chat_member(pending.chat_id, pending.opponent_id)
+            challenger_name = display_name(challenger.user)
+            opponent_name = display_name(opponent.user)
+        except Exception:
+            challenger_name = str(pending.challenger_id)
+            opponent_name = str(pending.opponent_id)
+
+        # 删除游戏
+        deps.storage.delete_rsp_game(game_id=pending.id)
+
+        # 更新原消息
+        if pending.message_id:
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=pending.chat_id,
+                    message_id=pending.message_id,
+                    text=f"🚫 游戏已取消\n\n{challenger_name} vs {opponent_name}\n\n由 {display_name(update.effective_user)} 取消"
+                )
+            except Exception:
+                pass  # 消息可能已被删除
+
+        await update.effective_message.reply_text("游戏已取消")
+        return
+
     # 检查是否有待处理的游戏
     pending = deps.storage.get_pending_rsp_game(
         chat_id=update.effective_chat.id,
