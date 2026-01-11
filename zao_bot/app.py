@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 
 from telegram import BotCommandScopeAllGroupChats, BotCommandScopeAllPrivateChats, BotCommandScopeDefault, Update
-from telegram.ext import Application, CommandHandler
+from telegram.ext import Application, CommandHandler, JobQueue
 from telegram.request import HTTPXRequest
 
 from config import load_settings
@@ -73,7 +73,7 @@ def build_app(
             # 命令同步失败不应导致 bot 无法启动（例如网络/代理问题）
             LOG.exception("同步 Bot 命令失败（setMyCommands），已忽略继续启动")
 
-    builder = Application.builder().token(token).post_init(_post_init)
+    builder = Application.builder().token(token).post_init(_post_init).job_queue(JobQueue())
     if proxy_url:
         # 同时用于 getUpdates 与其它 Bot API 请求（发消息/编辑消息等）
         # HTTPXRequest 使用 proxy 参数配置代理
@@ -96,7 +96,11 @@ def build_app(
     app.add_handler(CommandHandler("wake", cmd_wake))
 
     # 添加定时任务：每分钟检查一次待触发的提醒
-    app.job_queue.run_repeating(check_wake_reminders, interval=60, first=10)
+    if app.job_queue:
+        app.job_queue.run_repeating(check_wake_reminders, interval=60, first=10)
+        LOG.info("已启用 wake 提醒定时任务（每 60 秒检查一次）")
+    else:
+        LOG.warning("JobQueue 未启用，wake 提醒功能将不可用。提示：使用 Application.builder().job_queue(...) 启用")
 
     return app
 
