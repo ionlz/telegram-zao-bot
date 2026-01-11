@@ -878,21 +878,21 @@ async def rsp_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
     if not game:
-        await query.answer("找不到你的游戏记录！", show_alert=True)
+        await query.answer("找不到你的游戏记录！", show_alert=False)
         return
 
     # 检查是否是游戏参与者
     if query.from_user.id not in {game.challenger_id, game.opponent_id}:
-        await query.answer("这不是你的游戏！", show_alert=True)
+        await query.answer("这不是你的游戏！", show_alert=False)
         return
 
     # 检查是否已经选择过
     is_challenger = query.from_user.id == game.challenger_id
     if is_challenger and game.challenger_choice:
-        await query.answer("你已经做过选择了！", show_alert=True)
+        await query.answer("你已经做过选择了！", show_alert=False)
         return
     if not is_challenger and game.opponent_choice:
-        await query.answer("你已经做过选择了！", show_alert=True)
+        await query.answer("你已经做过选择了！", show_alert=False)
         return
 
     # 保存选择
@@ -907,20 +907,20 @@ async def rsp_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not game:
         return
 
+    # 获取用户信息
+    try:
+        challenger = await context.bot.get_chat_member(game.chat_id, game.challenger_id)
+        opponent = await context.bot.get_chat_member(game.chat_id, game.opponent_id)
+        challenger_name = display_name(challenger.user)
+        opponent_name = display_name(opponent.user)
+    except Exception:
+        challenger_name = str(game.challenger_id)
+        opponent_name = str(game.opponent_id)
+
     # 检查是否双方都已选择
     if game.challenger_choice and game.opponent_choice:
         # 游戏结束，计算结果
         result = _determine_rsp_winner(game.challenger_choice, game.opponent_choice)
-
-        # 获取用户信息
-        try:
-            challenger = await context.bot.get_chat_member(game.chat_id, game.challenger_id)
-            opponent = await context.bot.get_chat_member(game.chat_id, game.opponent_id)
-            challenger_name = display_name(challenger.user)
-            opponent_name = display_name(opponent.user)
-        except Exception:
-            challenger_name = str(game.challenger_id)
-            opponent_name = str(game.opponent_id)
 
         # 格式化选择
         choice_emoji = {
@@ -948,15 +948,32 @@ async def rsp_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             f"{result_text}"
         )
 
-        # 更新消息
+        # 更新消息（移除按钮）
         await query.edit_message_text(result_msg)
 
         # 标记游戏完成并记录获胜者
         deps.storage.complete_rsp_game(game_id=game.id, winner_id=winner_id)
     else:
-        # 还在等待另一方选择
-        waiting_for = "对手" if is_challenger else "挑战者"
-        await query.answer(f"你的选择已记录！等待{waiting_for}选择...", show_alert=True)
+        # 还在等待另一方选择 - 更新消息显示进度
+        if game.challenger_choice and not game.opponent_choice:
+            waiting_msg = f"🎮 {challenger_name} 向 {opponent_name} 发起了石头剪刀布挑战！\n\n✅ {challenger_name} 已选择\n⏳ 等待 {opponent_name} 选择..."
+        elif not game.challenger_choice and game.opponent_choice:
+            waiting_msg = f"🎮 {challenger_name} 向 {opponent_name} 发起了石头剪刀布挑战！\n\n⏳ 等待 {challenger_name} 选择...\n✅ {opponent_name} 已选择"
+        else:
+            waiting_msg = f"🎮 {challenger_name} 向 {opponent_name} 发起了石头剪刀布挑战！\n\n请双方点击下方按钮选择："
+
+        # 保留按钮，更新文本
+        keyboard = [
+            [
+                InlineKeyboardButton("✊ 石头", callback_data="rsp:rock"),
+                InlineKeyboardButton("✋ 布", callback_data="rsp:paper"),
+                InlineKeyboardButton("✌️ 剪刀", callback_data="rsp:scissors"),
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(waiting_msg, reply_markup=reply_markup)
+        await query.answer("你的选择已记录！", show_alert=False)
 
 
 def _determine_rsp_winner(challenger_choice: str, opponent_choice: str) -> str:
