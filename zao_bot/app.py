@@ -25,7 +25,7 @@ async def check_wake_reminders(context: ContextTypes.DEFAULT_TYPE) -> None:
     if not deps:
         return
 
-    now = datetime.now(tz=deps.settings.tz)
+    now = datetime.now(tz=deps.settings.tzinfo)
     reminders = deps.storage.get_pending_reminders(now=now)
 
     for reminder in reminders:

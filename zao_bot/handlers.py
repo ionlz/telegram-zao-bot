@@ -579,7 +579,7 @@ async def cmd_heatmap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         user_id=target.id,
         year=year,
         month=month,
-        tz=deps.settings.tz,
+        tz=deps.settings.tzinfo,
     )
 
     await update.effective_message.reply_text(heatmap_text)
