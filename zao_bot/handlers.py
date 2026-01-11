@@ -121,7 +121,7 @@ async def cmd_year(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     bar = full_char * full_blocks
     if rem and len(bar) < bar_len:
         bar += partial[rem]
-    bar = bar.ljust(bar_len, " ")
+    bar = bar.ljust(bar_len, "　")
     bar = f"├{bar}┤"
 
     text = (
