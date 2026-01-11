@@ -190,17 +190,18 @@ class PostgresStorage(Storage):
             )
             conn.commit()
 
-    def get_open_session(self, *, chat_id: int, user_id: int) -> OpenSession | None:
+    def get_open_session(self, *, chat_id: int, user_id: int, day: str | None = None) -> OpenSession | None:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT id, check_in
                 FROM sessions
                 WHERE chat_id=%s AND user_id=%s AND check_out IS NULL
+                  AND (%s IS NULL OR session_day = %s)
                 ORDER BY id DESC
                 LIMIT 1;
                 """,
-                (chat_id, user_id),
+                (chat_id, user_id, day, day),
             )
             row = cur.fetchone()
         if not row:
@@ -225,7 +226,8 @@ class PostgresStorage(Storage):
             return False
 
     def check_out(self, *, chat_id: int, user_id: int, ts: datetime) -> tuple[bool, timedelta | None, datetime | None, int | None]:
-        osess = self.get_open_session(chat_id=chat_id, user_id=user_id)
+        day = business_day_key(ts, cutoff_hour=4)
+        osess = self.get_open_session(chat_id=chat_id, user_id=user_id, day=day)
         if not osess:
             return False, None, None, None
         check_in_ts = osess.check_in
@@ -325,28 +327,48 @@ class PostgresStorage(Storage):
             out.append((int(user_id), _display_name_from_row(name, int(user_id)), int(seconds or 0)))
         return out
 
-    def open_user_ids(self, *, chat_id: int) -> set[int]:
+    def open_user_ids(self, *, chat_id: int, day: str | None = None) -> set[int]:
         with self._connect() as conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT DISTINCT user_id
-                FROM sessions
-                WHERE chat_id=%s AND check_out IS NULL;
-                """,
-                (chat_id,),
-            )
+            if day:
+                cur.execute(
+                    """
+                    SELECT DISTINCT user_id
+                    FROM sessions
+                    WHERE chat_id=%s AND check_out IS NULL AND session_day=%s;
+                    """,
+                    (chat_id, day),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT DISTINCT user_id
+                    FROM sessions
+                    WHERE chat_id=%s AND check_out IS NULL;
+                    """,
+                    (chat_id,),
+                )
             rows = cur.fetchall()
         return {int(r[0]) for r in rows}
 
-    def open_user_ids_global(self) -> set[int]:
+    def open_user_ids_global(self, day: str | None = None) -> set[int]:
         with self._connect() as conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT DISTINCT user_id
-                FROM sessions
-                WHERE check_out IS NULL;
-                """
-            )
+            if day:
+                cur.execute(
+                    """
+                    SELECT DISTINCT user_id
+                    FROM sessions
+                    WHERE check_out IS NULL AND session_day=%s;
+                    """,
+                    (day,),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT DISTINCT user_id
+                    FROM sessions
+                    WHERE check_out IS NULL;
+                    """
+                )
             rows = cur.fetchall()
         return {int(r[0]) for r in rows}
 

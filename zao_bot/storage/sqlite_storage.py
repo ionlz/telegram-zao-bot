@@ -37,8 +37,8 @@ class SQLiteStorage(Storage):
             updated_at=updated_at,
         )
 
-    def get_open_session(self, *, chat_id: int, user_id: int) -> OpenSession | None:
-        osess = sqlite_db.get_open_session(self._db_path, chat_id=chat_id, user_id=user_id)
+    def get_open_session(self, *, chat_id: int, user_id: int, day: str | None = None) -> OpenSession | None:
+        osess = sqlite_db.get_open_session(self._db_path, chat_id=chat_id, user_id=user_id, day=day)
         if not osess:
             return None
         return OpenSession(session_id=osess.session_id, check_in=osess.check_in)
@@ -64,11 +64,11 @@ class SQLiteStorage(Storage):
     def leaderboard_global(self, *, mode: str, now: datetime) -> list[tuple[int, str, int]]:
         return sqlite_db.leaderboard_global(self._db_path, mode=mode, now=now)
 
-    def open_user_ids(self, *, chat_id: int) -> set[int]:
-        return sqlite_db.open_user_ids(self._db_path, chat_id=chat_id)
+    def open_user_ids(self, *, chat_id: int, day: str | None = None) -> set[int]:
+        return sqlite_db.open_user_ids(self._db_path, chat_id=chat_id, day=day)
 
-    def open_user_ids_global(self) -> set[int]:
-        return sqlite_db.open_user_ids_global(self._db_path)
+    def open_user_ids_global(self, day: str | None = None) -> set[int]:
+        return sqlite_db.open_user_ids_global(self._db_path, day=day)
 
     def set_daily_earliest(
         self,

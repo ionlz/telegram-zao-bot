@@ -24,6 +24,11 @@ def _display_name(name: str | None, user_id: int) -> str:
 class SQLAlchemyStorage(Storage):
     url: str
 
+    def _parse_dt(self, v: Any) -> datetime:
+        if isinstance(v, datetime):
+            return v
+        return datetime.fromisoformat(str(v))
+
     def __post_init__(self) -> None:
         object.__setattr__(self, "_engine", self._make_engine(self.url))
 
@@ -424,7 +429,7 @@ class SQLAlchemyStorage(Storage):
                 )
 
     # --- sessions ---
-    def get_open_session(self, *, chat_id: int, user_id: int) -> OpenSession | None:
+    def get_open_session(self, *, chat_id: int, user_id: int, day: str | None = None) -> OpenSession | None:
         with self.engine.connect() as conn:
             r = conn.execute(
                 text(
@@ -432,19 +437,16 @@ class SQLAlchemyStorage(Storage):
                     SELECT id, check_in
                     FROM sessions
                     WHERE chat_id=:cid AND user_id=:uid AND check_out IS NULL
+                      AND (:day IS NULL OR session_day = :day)
                     ORDER BY id DESC
                     LIMIT 1;
                     """
                 ),
-                {"cid": chat_id, "uid": user_id},
+                {"cid": chat_id, "uid": user_id, "day": day},
             ).fetchone()
         if not r:
             return None
-        check_in = r[1]
-        if isinstance(check_in, str):
-            check_in_dt = datetime.fromisoformat(check_in)
-        else:
-            check_in_dt = check_in
+        check_in_dt = self._parse_dt(r[1])
         return OpenSession(session_id=int(r[0]), check_in=check_in_dt)
 
     def check_in(self, *, chat_id: int, user_id: int, ts: datetime) -> bool:
@@ -468,7 +470,9 @@ class SQLAlchemyStorage(Storage):
             return False
 
     def check_out(self, *, chat_id: int, user_id: int, ts: datetime) -> tuple[bool, timedelta | None, datetime | None, int | None]:
-        osess = self.get_open_session(chat_id=chat_id, user_id=user_id)
+        # 只允许签退“当前业务日”的 open session，避免跨日续接旧 /zao
+        day = business_day_key(ts, cutoff_hour=4)
+        osess = self.get_open_session(chat_id=chat_id, user_id=user_id, day=day)
         if not osess:
             return False, None, None, None
         check_in_ts = osess.check_in
@@ -674,17 +678,35 @@ class SQLAlchemyStorage(Storage):
             out.append((int(r[0]), _display_name(r[1], int(r[0])), int(r[2] or 0)))
         return out
 
-    def open_user_ids(self, *, chat_id: int) -> set[int]:
+    def open_user_ids(self, *, chat_id: int, day: str | None = None) -> set[int]:
         with self.engine.connect() as conn:
-            rows = conn.execute(
-                text("SELECT DISTINCT user_id FROM sessions WHERE chat_id=:cid AND check_out IS NULL;"),
-                {"cid": chat_id},
-            ).fetchall()
+            if day:
+                rows = conn.execute(
+                    text(
+                        """
+                        SELECT DISTINCT user_id
+                        FROM sessions
+                        WHERE chat_id=:cid AND check_out IS NULL AND session_day=:d;
+                        """
+                    ),
+                    {"cid": chat_id, "d": day},
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    text("SELECT DISTINCT user_id FROM sessions WHERE chat_id=:cid AND check_out IS NULL;"),
+                    {"cid": chat_id},
+                ).fetchall()
         return {int(r[0]) for r in rows}
 
-    def open_user_ids_global(self) -> set[int]:
+    def open_user_ids_global(self, day: str | None = None) -> set[int]:
         with self.engine.connect() as conn:
-            rows = conn.execute(text("SELECT DISTINCT user_id FROM sessions WHERE check_out IS NULL;")).fetchall()
+            if day:
+                rows = conn.execute(
+                    text("SELECT DISTINCT user_id FROM sessions WHERE check_out IS NULL AND session_day=:d;"),
+                    {"d": day},
+                ).fetchall()
+            else:
+                rows = conn.execute(text("SELECT DISTINCT user_id FROM sessions WHERE check_out IS NULL;")).fetchall()
         return {int(r[0]) for r in rows}
 
     # --- achievements ---

@@ -148,7 +148,7 @@ async def cmd_zao(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     ok = deps.storage.check_in(chat_id=update.effective_chat.id, user_id=update.effective_user.id, ts=now)
     if ok:
         # 签到成功 + 今日第N个签到
-        open_sess = deps.storage.get_open_session(chat_id=update.effective_chat.id, user_id=update.effective_user.id)
+        open_sess = deps.storage.get_open_session(chat_id=update.effective_chat.id, user_id=update.effective_user.id, day=today_key)
         if open_sess:
             n = deps.storage.today_checkin_position(
                 chat_id=update.effective_chat.id,
@@ -193,7 +193,7 @@ async def cmd_zao(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
         return
 
-    open_sess = deps.storage.get_open_session(chat_id=update.effective_chat.id, user_id=update.effective_user.id)
+    open_sess = deps.storage.get_open_session(chat_id=update.effective_chat.id, user_id=update.effective_user.id, day=today_key)
     if not open_sess:
         await update.effective_message.reply_text(deps.messages.render("checkin_inconsistent"))
         return
@@ -222,6 +222,21 @@ async def cmd_wan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         ts=now,
     )
     if not ok or dur is None or check_in_ts is None or session_id is None:
+        # 如果存在“跨业务日”的遗留未签退记录，按规则不允许用今天的 /wan 续接昨天
+        any_open = deps.storage.get_open_session(chat_id=update.effective_chat.id, user_id=update.effective_user.id)
+        if any_open:
+            open_day = business_day_key(any_open.check_in, cutoff_hour=4)
+            if open_day != today_key:
+                await update.effective_message.reply_text(
+                    deps.messages.render(
+                        "checkout_cross_day",
+                        name=display_name(update.effective_user),
+                        day=open_day,
+                        today=today_key,
+                        check_in=fmt_dt(any_open.check_in),
+                    )
+                )
+                return
         if deps.storage.session_today_exists(chat_id=update.effective_chat.id, user_id=update.effective_user.id, day=today_key):
             await update.effective_message.reply_text(
                 deps.messages.render("day_ended", name=display_name(update.effective_user))
@@ -276,7 +291,8 @@ async def cmd_awake(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not u:
         return
     now = event_time(update, deps)
-    open_sess = deps.storage.get_open_session(chat_id=update.effective_chat.id, user_id=u.id)
+    today_key = business_day_key(now, cutoff_hour=4)
+    open_sess = deps.storage.get_open_session(chat_id=update.effective_chat.id, user_id=u.id, day=today_key)
     if open_sess:
         await update.effective_message.reply_text(
             deps.messages.render(
@@ -310,12 +326,18 @@ async def cmd_rank(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             mode = "today"
 
     now = event_time(update, deps)
+    today_key = business_day_key(now, cutoff_hour=4)
     rows = (
         deps.storage.leaderboard_global(mode=mode, now=now)
         if is_global
         else deps.storage.leaderboard(chat_id=update.effective_chat.id, mode=mode, now=now)
     )
-    open_ids = deps.storage.open_user_ids_global() if is_global else deps.storage.open_user_ids(chat_id=update.effective_chat.id)
+    # 🔥/💤 标记也按业务日过滤，避免历史遗留未签退影响“今日”展示
+    open_ids = (
+        deps.storage.open_user_ids_global(day=today_key)
+        if is_global
+        else deps.storage.open_user_ids(chat_id=update.effective_chat.id, day=today_key)
+    )
     if is_global:
         title = deps.messages.render("rank_title_today_global") if mode == "today" else deps.messages.render("rank_title_all_global")
     else:
