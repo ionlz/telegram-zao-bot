@@ -582,7 +582,8 @@ async def cmd_heatmap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         tz=deps.settings.tzinfo,
     )
 
-    await update.effective_message.reply_text(heatmap_text)
+    # 使用代码块格式确保等宽字体对齐
+    await update.effective_message.reply_text(f"```\n{heatmap_text}\n```", parse_mode="Markdown")
 
 
 async def cmd_gun(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
